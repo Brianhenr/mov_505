@@ -324,7 +324,6 @@ def executar_pull_saldo(plano_de_movimentacao):
         except Exception as erro:
             print(f"Erro fatal na automação Web: {erro}")
             
-        input('Pressione Enter para fechar o navegador...')
 
 if __name__ == '__main__':
     perguntar_puxar_saldo()
