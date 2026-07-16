@@ -103,48 +103,44 @@ def planejar_movimentacao(caminho_saldo):
 
     try:
         caminho_csv = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
-        
         df_csv = pd.read_csv(caminho_csv)
         df_ativos = df_csv[df_csv["STATUS_REGISTRO"] == "ATIVO"]
-
         df_saldo = pd.read_excel(caminho_saldo, header=1)
-
         df_saldo['Armazem'] = df_saldo['Armazem'].astype(str).str.replace(',', '.').str.split('.').str[0].str.zfill(2)
 
         if df_saldo['Quantidade'].dtype == object:
             df_saldo['Quantidade'] = df_saldo['Quantidade'].astype(str).str.replace('.', '').str.replace(',', '.').astype(float)
         else:
             df_saldo['Quantidade'] = df_saldo['Quantidade'].astype(float)
-
     except Exception as e:
         print(f"Erro ao ler bases de dados: {e}")
-        print(PASTA_BASE, CAMINHO_PUXAR_SALDO, PASTA_DOCUMENTOS)
-        # CORREÇÃO OBRIGATÓRIA AQUI: Devolvendo duas listas vazias para o programa não quebrar
-        return [], [] 
+        # Retorna um dicionário vazio em caso de erro
+        return {} 
 
-    linhas_para_digitar = []
-    # 1. Lista criada antes do laço para não ser apagada a cada volta
-    indices_processados = [] 
+    # ── NOVO: Dicionário que vai agrupar tudo por TAT ──
+    plano_por_tat = {}
 
     for index, req in df_ativos.iterrows():
         codigo_csv = req['CODIGO_MATERIAL']
         qtd_pedida = req['QUANTIDADE']
         tat_csv = req['TAT']
 
+        # Se a TAT ainda não existe no dicionário, cria o grupo dela
+        if tat_csv not in plano_por_tat:
+            plano_por_tat[tat_csv] = {'linhas': [], 'indices': []}
+
         saldo_produto = df_saldo[(df_saldo['Produto'] == codigo_csv) & (df_saldo['Armazem'] == '01')]
-        
         total_disp = saldo_produto['Quantidade'].sum()
 
         if total_disp < qtd_pedida:
             print(f"⚠️ IGNORADO: {codigo_csv} pede {qtd_pedida}, mas só tem {total_disp} no armazém 01.")
             continue
             
-        # 2. O material passou no teste de saldo. Salva a linha original dele.
-        indices_processados.append(index)
-
+        # Salva o índice DENTRO do grupo da TAT atual
+        plano_por_tat[tat_csv]['indices'].append(index)
         saldo_produto = saldo_produto.sort_values('Quantidade', ascending=False)
-
         qtd_faltante = qtd_pedida
+        
         for idx_saldo, linha_saldo in saldo_produto.iterrows():
             if qtd_faltante <= 0:
                 break
@@ -154,28 +150,26 @@ def planejar_movimentacao(caminho_saldo):
 
             if qtd_end > 0:
                 if qtd_end >= qtd_faltante:
-                    linhas_para_digitar.append({
+                    # Adiciona a linha de digitação DENTRO do grupo da TAT atual
+                    plano_por_tat[tat_csv]['linhas'].append({
                         'produto': codigo_csv,
                         'quantidade': qtd_faltante,
                         'endereco': endereco_local,
                         'tat': tat_csv
                     })
-                    # DESCONTA O SALDO AO VIVO USANDO A VARIÁVEL QUE JÁ CAPTURAMOS
                     df_saldo.at[idx_saldo, 'Quantidade'] = qtd_end - qtd_faltante
                     qtd_faltante = 0
                 else:
-                    linhas_para_digitar.append({
+                    plano_por_tat[tat_csv]['linhas'].append({
                         'produto': codigo_csv,
                         'quantidade': qtd_end,
                         'endereco': endereco_local,
                         'tat': tat_csv
                     })
-                    # ZERA ESTE ENDEREÇO NA MEMÓRIA, POIS PEGAMOS TUDO DELE
                     df_saldo.at[idx_saldo, 'Quantidade'] = 0 
                     qtd_faltante -= qtd_end
 
-    # 3. Retorno das duas variáveis exigidas pela próxima função
-    return linhas_para_digitar, indices_processados
+    return plano_por_tat
 
 
 def executar_pull_saldo(plano_de_movimentacao, indices_processados):
@@ -242,86 +236,90 @@ def executar_pull_saldo(plano_de_movimentacao, indices_processados):
             pagina.get_by_title("Movimentação Múltipla").click()
             pagina.wait_for_timeout(10000)
 
-            pagina.get_by_role("button", name="Incluir", exact=True).click()
-            pagina.wait_for_timeout(4500)
+            # ── NOVO: LAÇO MESTRE QUE SEPARA OS DOCUMENTOS POR TAT ──
+            for tat_atual, dados_tat in plano_de_movimentacao.items():
+                linhas_para_digitar = dados_tat['linhas']
+                indices_processados = dados_tat['indices']
 
-            print("Preenchendo Cabeçalho (505)...")
-            locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
-            locator_tm.fill("505")
-            pagina.wait_for_timeout(1500)
+                # Se por algum motivo o grupo não tiver linhas (falta de saldo), pula para a próxima TAT
+                if not linhas_para_digitar:
+                    continue
 
-            for linha_idx, item in enumerate(plano_de_movimentacao):
-                print(f"Digitando Linha {linha_idx}: {item['quantidade']} un. de {item['produto']} | End: {item['endereco']} | TAT: {item['tat']}")
+                print(f"\n--- INICIANDO NOVO DOCUMENTO PARA A TAT: {tat_atual} ---")
+                pagina.get_by_role("button", name="Incluir", exact=True).click()
+                pagina.wait_for_timeout(4500)
 
-                linha_alvo = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx)
+                print("Preenchendo Cabeçalho (505)...")
+                locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
+                locator_tm.fill("505")
+                pagina.wait_for_timeout(1500)
 
-                celula_prod = linha_alvo.locator("td[id='0']")
-                produto = ativar_celula_robustamente(pagina, celula_prod, 'wa-text-input[name="M->D3_COD"] input')
-                produto.fill(item['produto'])
-                pagina.keyboard.press("Enter")
-                pagina.wait_for_timeout(2000)
+                # Laço interno que preenche a grid APENAS com os materiais desta TAT
+                for linha_idx, item in enumerate(linhas_para_digitar):
+                    print(f"Digitando Linha {linha_idx}: {item['quantidade']} un. de {item['produto']} | End: {item['endereco']} | TAT: {item['tat']}")
 
-                celula_qtd = linha_alvo.locator("td[id='2']")
-                qtd = ativar_celula_robustamente(pagina, celula_qtd, 'wa-text-input[name="M->D3_QUANT"] input')
-                qtd_str = str(item['quantidade']).replace('.', ',') if item['quantidade'] % 1 != 0 else str(int(item['quantidade']))
-                qtd.fill(qtd_str)
-                pagina.keyboard.press("Enter")
-                pagina.wait_for_timeout(2000)
+                    linha_alvo = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx)
 
-                #Observacao
-                try: 
-                    celula_obs = linha_alvo.locator('td[id="3"]')
-                    obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
-                    obs.fill("REPOSIÇÃO")
-                    pagina.get_by_title("Ok").click()
-                    pagina.wait_for_timeout(2000)
-                except Exception as e:
-                    print(f"Ao marcar observação deu o erro: {e}")
-
-
-                # ID 8 (Endereço) e ID 31 (TAT) — 
-                celula_end = linha_alvo.locator("td[id='8']")
-                endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')
-                endereco.fill(item['endereco'])
-                pagina.keyboard.press("Enter")
-                pagina.wait_for_timeout(2000)
-
-                
-                #classe de valor
-                celula_tat = linha_alvo.locator('td[id="31"]')
-                tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
-                tat_input.fill(f"TAT {item['tat']}")
-                pagina.keyboard.press("Enter")
-                pagina.wait_for_timeout(2000)
-
-                if linha_idx < len(plano_de_movimentacao) - 1:
-                    pagina.keyboard.press("ArrowDown")
-                    nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
-                    nova_linha.wait_for(state="attached", timeout=5000)
+                    celula_prod = linha_alvo.locator("td[id='0']")
+                    produto = ativar_celula_robustamente(pagina, celula_prod, 'wa-text-input[name="M->D3_COD"] input')
+                    produto.fill(item['produto'])
+                    pagina.keyboard.press("Enter")
                     pagina.wait_for_timeout(2000)
 
-            # ── SALVAMENTO FINAL ──
-            print("Todas as linhas preenchidas. Salvando movimentação...")
-            pagina.locator('wa-button').filter(has_text="Salvar").click()
-            
-            # ── DECISÃO E ATUALIZAÇÃO DO CSV ──
-            if confirmar_salvamento(pagina):
-                print("✓ Movimentação confirmada! A tela do Protheus foi limpa.")
+                    celula_qtd = linha_alvo.locator("td[id='2']")
+                    qtd = ativar_celula_robustamente(pagina, celula_qtd, 'wa-text-input[name="M->D3_QUANT"] input')
+                    qtd_str = str(item['quantidade']).replace('.', ',') if item['quantidade'] % 1 != 0 else str(int(item['quantidade']))
+                    qtd.fill(qtd_str)
+                    pagina.keyboard.press("Enter")
+                    pagina.wait_for_timeout(2000)
+
+                    # Observacao
+                    try: 
+                        celula_obs = linha_alvo.locator('td[id="3"]')
+                        obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
+                        obs.fill("REPOSIÇÃO")
+                        pagina.get_by_title("Ok").click()
+                        pagina.wait_for_timeout(2000)
+                    except Exception as e:
+                        print(f"Ao marcar observação deu o erro: {e}")
+
+                    # Endereço
+                    celula_end = linha_alvo.locator("td[id='8']")
+                    endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')
+                    endereco.fill(item['endereco'])
+                    pagina.keyboard.press("Enter")
+                    pagina.wait_for_timeout(2000)
+                    
+                    # TAT
+                    celula_tat = linha_alvo.locator('td[id="31"]')
+                    tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
+                    tat_input.fill(f"TAT {item['tat']}")
+                    pagina.keyboard.press("Enter")
+                    pagina.wait_for_timeout(2000)
+
+                    if linha_idx < len(linhas_para_digitar) - 1:
+                        pagina.keyboard.press("ArrowDown")
+                        nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
+                        nova_linha.wait_for(state="attached", timeout=5000)
+                        pagina.wait_for_timeout(2000)
+
+                # ── SALVAMENTO DO DOCUMENTO DA TAT ATUAL ──
+                print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
+                pagina.locator('wa-button').filter(has_text="Salvar").click()
                 
-                print("Atualizando arquivo CSV...")
-                caminho_csv = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
-                df_atualizar = pd.read_csv(caminho_csv)
-                
-                # Muda o status apenas das linhas que o robô processou com sucesso
-                df_atualizar.loc[indices_processados, "STATUS_REGISTRO"] = "CONCLUIDO"
-                df_atualizar.to_csv(caminho_csv, index=False)
-                
-                print("✓ Registros marcados como CONCLUIDO no banco de dados.")
-                
-            else:
-                print("⚠ Salvamento não confirmado (Possível bloqueio do ERP).")
-                recuperar_tela(pagina)
-                # O CSV não é tocado, mantendo as linhas como "ATIVO" para a próxima rodada
+                # Valida se ESTE documento salvou com sucesso
+                if confirmar_salvamento(pagina):
+                    print(f"✓ Movimentação da TAT {tat_atual} confirmada!")
+                    caminho_csv = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
+                    df_atualizar = pd.read_csv(caminho_csv)
+                    df_atualizar.loc[indices_processados, "STATUS_REGISTRO"] = "CONCLUIDO"
+                    df_atualizar.to_csv(caminho_csv, index=False)
+                    print(f"✓ Itens do CSV atualizados.")
+                else:
+                    print(f"⚠ Salvamento da TAT {tat_atual} não confirmado.")
+                    recuperar_tela(pagina)
+
+            print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
 
         except Exception as erro:
             print(f"Erro fatal na automação Web: {erro}")
