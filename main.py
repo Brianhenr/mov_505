@@ -172,7 +172,7 @@ def planejar_movimentacao(caminho_saldo):
     return plano_por_tat
 
 
-def executar_pull_saldo(plano_de_movimentacao, indices_processados):
+def executar_pull_saldo(plano_de_movimentacao):
     if not plano_de_movimentacao:
         print("Nenhuma movimentação válida para ser feita. Robô encerrado.")
         return
@@ -331,8 +331,8 @@ if __name__ == '__main__':
     caminho_saldo = pegar_ultimo_relatorio()
     print(f"Usando relatório: {caminho_saldo}")
     
-    # <-- Ajustado para receber as duas variáveis
-    plano_final, indices_prontos = planejar_movimentacao(caminho_saldo) 
+    # Recebe o Dicionário agrupado por TAT
+    plano_agrupado = planejar_movimentacao(caminho_saldo) 
     
-    # <-- Ajustado para enviar as duas variáveis
-    executar_pull_saldo(plano_final, indices_prontos)
+    # Envia o Dicionário para o robô web processar
+    executar_pull_saldo(plano_agrupado)
