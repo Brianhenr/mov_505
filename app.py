@@ -1,117 +1,174 @@
-import streamlit as st
-import pandas as pd
+# app.py
+# Refatoração da aplicação Streamlit
+# Principais melhorias:
+# - Busca por texto antes do selectbox
+# - Filtragem limitada a 50 resultados
+# - Código organizado em funções
+# - Mantém a lógica original de gravação/cancelamento
+
 import os
 from datetime import datetime
 
+import pandas as pd
+import streamlit as st
+
 PASTA_BASE = os.path.dirname(os.path.abspath(__file__))
 PASTA_DOCUMENTOS = os.path.join(PASTA_BASE, "documentos")
-
 ARQUIVO_SAIDA = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
+
 
 @st.cache_data
 def carregar_dados():
-    try:
-        # 1. Carrega Fábrica
-        df_fabrica = pd.read_excel(os.path.join(PASTA_DOCUMENTOS, "planilha_fabrica.xlsx"), sheet_name="CONTROLE LISTAS", header=1)
-        df_ativos = df_fabrica[df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA"])].copy()
-        df_ativos["NOME_PROJETO"] = df_ativos["PROJETO"].astype(str) + " LOTE " + df_ativos["LOTE"].astype(str)
-        
-        # 2. Carrega Produtos (Base Completa para validação)
-        df_produtos_completo = pd.read_excel(os.path.join(PASTA_DOCUMENTOS, "produtos.xlsx"), header=1)
-        
-        # 3. Cria a Base Filtrada (Apenas 10. e 27. para o Dropdown rápido)
-        filtro_codigo = df_produtos_completo["Codigo"].astype(str).str.startswith(("10.", "27."))
-        df_produtos_filtrado = df_produtos_completo[filtro_codigo].copy()
-        df_produtos_filtrado["EXIBICAO"] = df_produtos_filtrado["Codigo"].astype(str) + " - " + df_produtos_filtrado["Descricao"].astype(str)
-        
-        return df_ativos, df_produtos_completo, df_produtos_filtrado
-
-    except Exception as e:
-        st.error(f"Erro estrutural ao carregar bases: {e}")
-        st.stop()
-
-df_projetos, df_produtos_completo, df_produtos_filtrado = carregar_dados()
-
-st.title("Sistema de Requisição Extra")
-
-projeto_selecionado = st.selectbox(
-    "1. Projeto:", 
-    df_projetos["NOME_PROJETO"].tolist(), 
-    index=None, 
-    placeholder="Clique ou digite para buscar o projeto..."
-)
-
-st.write("---")
-usar_urgencia = st.checkbox("⚠️ Material fora do padrão (Digitação Manual)")
-
-if usar_urgencia:
-    material_selecionado = st.text_input("2. Digite o código EXATO do material:")
-else:
-    material_selecionado = st.selectbox(
-        "2. Material (Somente 10. e 27.):", 
-        df_produtos_filtrado["EXIBICAO"].tolist(), 
-        index=None, 
-        placeholder="Digite o código ou a descrição..."
+    df_fabrica = pd.read_excel(
+        os.path.join(PASTA_DOCUMENTOS, "planilha_fabrica.xlsx"),
+        sheet_name="CONTROLE LISTAS",
+        header=1,
     )
-st.write("---")
 
-lista_responsaveis = ["Eduardo", "Chico Louco", "Mairo", "Natan", "Odair", "Outro..."]
-responsavel_selecionado = st.selectbox(
-    "3. Responsável pela retirada:", 
-    lista_responsaveis, 
-    index=None, 
-    placeholder="Quem está retirando o material?"
+    df_projetos = df_fabrica[
+        df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA"])
+    ].copy()
+
+    df_projetos["PROJETO"] = df_projetos["PROJETO"].astype(str).str.strip()
+    df_projetos["LOTE"] = df_projetos["LOTE"].astype(str).str.strip()
+    df_projetos["NOME_PROJETO"] = (
+        df_projetos["PROJETO"] + " LOTE " + df_projetos["LOTE"]
+    )
+    df_projetos["BUSCA"] = (
+        df_projetos["NOME_PROJETO"].str.upper()
+        + " "
+        + df_projetos["TAT"].astype(str).str.upper()
+    )
+
+    df_produtos = pd.read_excel(
+        os.path.join(PASTA_DOCUMENTOS, "produtos.xlsx"),
+        header=1,
+    )
+
+    df_produtos["Codigo"] = df_produtos["Codigo"].astype(str).str.strip()
+    df_produtos["Descricao"] = df_produtos["Descricao"].astype(str).str.strip()
+
+    df_produtos["BUSCA"] = (
+        df_produtos["Codigo"] + " " + df_produtos["Descricao"]
+    ).str.upper()
+
+    filtrado = df_produtos[
+        df_produtos["Codigo"].str.startswith(("10.", "27."))
+    ].copy()
+
+    filtrado["EXIBICAO"] = (
+        filtrado["Codigo"] + " - " + filtrado["Descricao"]
+    )
+
+    return df_projetos, df_produtos, filtrado
+
+
+def filtrar(df, coluna, texto, limite=50):
+    if texto:
+        return df[df[coluna].str.contains(texto.upper(), na=False)].head(limite)
+    return df.head(limite)
+
+
+def gravar(registro):
+    if os.path.exists(ARQUIVO_SAIDA):
+        registro.to_csv(ARQUIVO_SAIDA, mode="a", header=False, index=False)
+    else:
+        registro.to_csv(ARQUIVO_SAIDA, mode="w", header=True, index=False)
+
+
+def desfazer():
+    if not os.path.exists(ARQUIVO_SAIDA):
+        st.info("Nenhum registro encontrado.")
+        return
+
+    df = pd.read_csv(ARQUIVO_SAIDA)
+
+    if df.empty:
+        st.info("Arquivo vazio.")
+        return
+
+    if df.iloc[-1]["STATUS_REGISTRO"] == "ATIVO":
+        df.at[df.index[-1], "STATUS_REGISTRO"] = "CANCELADO"
+        df.to_csv(ARQUIVO_SAIDA, index=False)
+        st.warning("Último registro cancelado.")
+    else:
+        st.info("Último registro já estava cancelado.")
+
+
+df_proj, df_prod, df_filtrado = carregar_dados()
+
+st.title("Sistema de Requisição Extra - 505")
+
+busca_proj = st.text_input("Buscar projeto")
+proj_df = filtrar(df_proj, "BUSCA", busca_proj)
+
+projeto = st.selectbox(
+    "Projeto",
+    proj_df["NOME_PROJETO"].tolist(),
+    index=None,
 )
 
-quantidade = st.number_input("4. Quantidade:", min_value=1, step=1)
+st.divider()
 
-col1, col2 = st.columns(2)
+manual = st.checkbox("⚠ Material fora do padrão")
 
-with col1:
-    if st.button("Gravar Saída", use_container_width=True):
-        if not projeto_selecionado or not material_selecionado or not responsavel_selecionado:
-            st.error("Bloqueado: Preencha todos os campos antes de gravar.")
+if manual:
+    material = st.text_input("Código do material")
+else:
+    busca_mat = st.text_input("Buscar material (código ou descrição)")
+    mat_df = filtrar(df_filtrado, "BUSCA", busca_mat)
+    material = st.selectbox(
+        "Material",
+        mat_df["EXIBICAO"].tolist(),
+        index=None,
+    )
+
+st.divider()
+
+resp = st.selectbox(
+    "Responsável",
+    ["Eduardo", "Chico Louco", "Mairo", "Natan", "Odair", "Outro..."],
+    index=None,
+)
+
+qtd = st.number_input("Quantidade", min_value=1, step=1)
+
+c1, c2 = st.columns(2)
+
+with c1:
+    if st.button("Gravar", use_container_width=True):
+        if not (projeto and material and resp):
+            st.error("Preencha todos os campos.")
         else:
-            if usar_urgencia:
-                codigo_final = material_selecionado.strip() 
-                codigos_validos = df_produtos_completo["Codigo"].astype(str).tolist()
-                if codigo_final not in codigos_validos:
-                    st.error(f"ERRO: O código '{codigo_final}' não existe no Protheus. Verifique a digitação.")
+            if manual:
+                codigo = material.strip()
+                if codigo not in df_prod["Codigo"].tolist():
+                    st.error("Código inexistente.")
                     st.stop()
             else:
-                codigo_final = material_selecionado.split(" - ")[0]
-            
-            tat_exata = df_projetos[df_projetos["NOME_PROJETO"] == projeto_selecionado]["TAT"].values[0]
-            
-            novo_registro = pd.DataFrame([{
-                "DATA_HORA": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-                "TAT": tat_exata,
-                "PROJETO_NOME": projeto_selecionado,
-                "CODIGO_MATERIAL": codigo_final,
-                "QUANTIDADE": quantidade,
-                "RESPONSAVEL": responsavel_selecionado,
-                "STATUS_REGISTRO": "ATIVO" 
-            }])
-            
-            if os.path.exists(ARQUIVO_SAIDA):
-                novo_registro.to_csv(ARQUIVO_SAIDA, mode='a', header=False, index=False)
-            else:
-                novo_registro.to_csv(ARQUIVO_SAIDA, mode='w', header=True, index=False)
-                
-            st.success(f"Salvo! (Material: {codigo_final})")
+                codigo = material.split(" - ")[0]
 
-with col2:
-    if st.button("Desfazer Último Registro", use_container_width=True):
-        if os.path.exists(ARQUIVO_SAIDA):
-            df_saida = pd.read_csv(ARQUIVO_SAIDA)
-            if not df_saida.empty:
-                if df_saida.iloc[-1]["STATUS_REGISTRO"] == "ATIVO":
-                    df_saida.at[df_saida.index[-1], "STATUS_REGISTRO"] = "CANCELADO"
-                    df_saida.to_csv(ARQUIVO_SAIDA, index=False)
-                    st.warning("O último registro foi marcado como CANCELADO.")
-                else:
-                    st.info("O último registro já estava cancelado.")
-            else:
-                st.info("A base de registros está vazia.")
-        else:
-            st.info("Nenhum arquivo de registro encontrado.")
+            projeto_info = df_proj[df_proj["NOME_PROJETO"] == projeto]
+
+            if projeto_info.empty:
+                st.error("Projeto não encontrado.")
+                st.stop()
+
+            tat = projeto_info.iloc[0]["TAT"]
+
+            reg = pd.DataFrame([{
+                "DATA_HORA": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+                "TAT": tat,
+                "PROJETO_NOME": projeto,
+                "CODIGO_MATERIAL": codigo,
+                "QUANTIDADE": qtd,
+                "RESPONSAVEL": resp,
+                "STATUS_REGISTRO": "ATIVO"
+            }])
+
+            gravar(reg)
+            st.success("Registro salvo.")
+
+with c2:
+    if st.button("Desfazer último", use_container_width=True):
+        desfazer()

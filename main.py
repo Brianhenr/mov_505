@@ -186,7 +186,8 @@ def executar_pull_saldo(plano_de_movimentacao):
             args=[
                 "--disable-extensions",
                 "--accept-lang=pt-BR,pt",
-                "--start-maximized"
+                "--start-maximized",
+                "--no-sandobox"
             ]
         )
         pagina = context.pages[0] if context.pages else context.new_page()
@@ -236,6 +237,8 @@ def executar_pull_saldo(plano_de_movimentacao):
             pagina.get_by_title("Movimentação Múltipla").click()
             pagina.wait_for_timeout(10000)
 
+            precisa_clicar_incluir = True
+
             # ── NOVO: LAÇO MESTRE QUE SEPARA OS DOCUMENTOS POR TAT ──
             for tat_atual, dados_tat in plano_de_movimentacao.items():
                 linhas_para_digitar = dados_tat['linhas']
@@ -246,9 +249,12 @@ def executar_pull_saldo(plano_de_movimentacao):
                     continue
 
                 print(f"\n--- INICIANDO NOVO DOCUMENTO PARA A TAT: {tat_atual} ---")
-                pagina.get_by_role("button", name="Incluir", exact=True).click()
-                pagina.wait_for_timeout(5500)
-                
+                if precisa_clicar_incluir:
+                    pagina.get_by_role("button", name="Incluir", exact=True).click()
+                    pagina.wait_for_timeout(5500)
+                else:
+                    print(f"A tela de inclusão ja esta aberta. Pulando click...")
+
                 print("Preenchendo Cabeçalho (505)...")
                 locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
                 locator_tm.fill("505")
@@ -289,13 +295,30 @@ def executar_pull_saldo(plano_de_movimentacao):
                     endereco.fill(item['endereco'])
                     pagina.keyboard.press("Enter")
                     pagina.wait_for_timeout(5000)
+
                     
-                    # TAT
+                     # TAT
                     celula_tat = linha_alvo.locator('td[id="31"]')
                     tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
                     tat_input.fill(f"TAT {item['tat']}")
                     pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(5000)
+                    pagina.wait_for_timeout(1000)
+
+                    # Cria o localizador apontando para o componente pai correto
+                    botao_fechar = pagina.locator('wa-button').filter(has_text="Fechar")
+
+                    # Usa o .is_visible() para realmente testar o estado da tela naquele milissegundo
+                    if botao_fechar.is_visible():
+                        print(f"⚠️ Modal de erro detectado para a TAT {item['tat']}!")
+                        botao_fechar.click()
+                        pagina.wait_for_timeout(1000)
+                        
+                        # [LÓGICA DE ABORTO DEVE ENTRAR AQUI]
+                        celula_tat = linha_alvo.locator('td[id="31"]')
+                        tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
+                        tat_input.fill(f"{item['tat']}")
+                        pagina.keyboard.press("Enter")
+
 
                     if linha_idx < len(linhas_para_digitar) - 1:
                         pagina.keyboard.press("ArrowDown")
@@ -305,7 +328,7 @@ def executar_pull_saldo(plano_de_movimentacao):
 
                 # ── SALVAMENTO DO DOCUMENTO DA TAT ATUAL ──
                 print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
-                pagina.locator('wa-button').filter(has_text="Salvar").click()
+                pagina.locator('wa-button').filter(has_text="Salvar").click(force=True)
                 
                 # Valida se ESTE documento salvou com sucesso
                 if confirmar_salvamento(pagina):
@@ -315,9 +338,13 @@ def executar_pull_saldo(plano_de_movimentacao):
                     df_atualizar.loc[indices_processados, "STATUS_REGISTRO"] = "CONCLUIDO"
                     df_atualizar.to_csv(caminho_csv, index=False)
                     print(f"✓ Itens do CSV atualizados.")
+
+                    precisa_clicar_incluir = False
                 else:
                     print(f"⚠ Salvamento da TAT {tat_atual} não confirmado.")
                     recuperar_tela(pagina)
+
+                    precisa_clicar_incluir = True
 
             print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
 
