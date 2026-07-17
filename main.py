@@ -247,12 +247,12 @@ def executar_pull_saldo(plano_de_movimentacao):
 
                 print(f"\n--- INICIANDO NOVO DOCUMENTO PARA A TAT: {tat_atual} ---")
                 pagina.get_by_role("button", name="Incluir", exact=True).click()
-                pagina.wait_for_timeout(4500)
-
+                pagina.wait_for_timeout(5500)
+                
                 print("Preenchendo Cabeçalho (505)...")
                 locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
                 locator_tm.fill("505")
-                pagina.wait_for_timeout(1500)
+                pagina.wait_for_timeout(5000)
 
                 # Laço interno que preenche a grid APENAS com os materiais desta TAT
                 for linha_idx, item in enumerate(linhas_para_digitar):
@@ -264,14 +264,14 @@ def executar_pull_saldo(plano_de_movimentacao):
                     produto = ativar_celula_robustamente(pagina, celula_prod, 'wa-text-input[name="M->D3_COD"] input')
                     produto.fill(item['produto'])
                     pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(2000)
+                    pagina.wait_for_timeout(5000)
 
                     celula_qtd = linha_alvo.locator("td[id='2']")
                     qtd = ativar_celula_robustamente(pagina, celula_qtd, 'wa-text-input[name="M->D3_QUANT"] input')
                     qtd_str = str(item['quantidade']).replace('.', ',') if item['quantidade'] % 1 != 0 else str(int(item['quantidade']))
                     qtd.fill(qtd_str)
                     pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(2000)
+                    pagina.wait_for_timeout(5000)
 
                     # Observacao
                     try: 
@@ -279,7 +279,7 @@ def executar_pull_saldo(plano_de_movimentacao):
                         obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
                         obs.fill("REPOSIÇÃO")
                         pagina.get_by_title("Ok").click()
-                        pagina.wait_for_timeout(2000)
+                        pagina.wait_for_timeout(5000)
                     except Exception as e:
                         print(f"Ao marcar observação deu o erro: {e}")
 
@@ -288,20 +288,20 @@ def executar_pull_saldo(plano_de_movimentacao):
                     endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')
                     endereco.fill(item['endereco'])
                     pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(2000)
+                    pagina.wait_for_timeout(5000)
                     
                     # TAT
                     celula_tat = linha_alvo.locator('td[id="31"]')
                     tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
                     tat_input.fill(f"TAT {item['tat']}")
                     pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(2000)
+                    pagina.wait_for_timeout(5000)
 
                     if linha_idx < len(linhas_para_digitar) - 1:
                         pagina.keyboard.press("ArrowDown")
                         nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
                         nova_linha.wait_for(state="attached", timeout=5000)
-                        pagina.wait_for_timeout(2000)
+                        pagina.wait_for_timeout(5000)
 
                 # ── SALVAMENTO DO DOCUMENTO DA TAT ATUAL ──
                 print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
