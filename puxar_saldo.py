@@ -20,14 +20,16 @@ def executar_pull_saldo():
             user_data_dir=caminho_profile,
             headless=False,
             channel="msedge",
-            #viewport={'width': 1920, 'height': 1080}, # Define a area util(que vai ser usada)
-            args=[
-                "--disable-extensions",
-                "--accept-lang=pt-BR,pt",
-                "--window-size=1920,1080" #Define o tamanho real da janela
-            ]
         )
         pagina = context.pages[0] if context.pages else context.new_page()
+        pagina.goto(web, wait_until="networkidle", timeout=60000)
+        pagina.wait_for_load_state("networkidle")
+       
+        pagina.bring_to_front()
+        pagina.wait_for_timeout(3800)
+        pagina.get_by_role("button", name="Ok").click(timeout=5000)
+        pagina.wait_for_timeout(2000)
+        
 
         try:
             # ── LOGIN ──
@@ -35,16 +37,14 @@ def executar_pull_saldo():
             pagina.goto(web, wait_until="networkidle", timeout=60000)
             pagina.wait_for_load_state("networkidle")
 
-            try:
-                pagina.get_by_role("button", name="Permitir").click(timeout=3000)
-                pagina.wait_for_timeout(1000)
-            except Exception:
-                pass
 
             pagina.bring_to_front()
             pagina.wait_for_timeout(3800)
             pagina.get_by_role("button", name="Ok").click(timeout=5000)
             pagina.wait_for_timeout(2000)
+            # input("Clique em Permitir (marcando o checkbox se existir) e pressione Enter aqui...")
+            # context.close()
+            
 
             iframe = pagina.frame_locator("iframe")
             iframe.get_by_role("textbox", name="Insira seu usuário").wait_for(timeout=30000)
@@ -166,8 +166,8 @@ def executar_pull_saldo():
             pagina.wait_for_timeout(1500)
 
                 
-            print("   Teste...")
-            pagina.locator('label:has-text("teste")').dblclick()
+            print("   Abrindo Pasta...")
+            pagina.locator('label:has-text("mov_multipla")').dblclick()
             pagina.wait_for_timeout(2000)
 
             print("Entrando na pasta...")
@@ -210,6 +210,7 @@ def executar_pull_saldo():
             
 
         finally:
+            time.sleep(5)
             context.close()
 
 if __name__ == "__main__":

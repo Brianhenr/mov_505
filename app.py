@@ -26,7 +26,7 @@ def carregar_dados():
     )
 
     df_projetos = df_fabrica[
-        df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA"])
+        df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA","MONTADO","APONTADO"])
     ].copy()
 
     df_projetos["PROJETO"] = df_projetos["PROJETO"].astype(str).str.strip()

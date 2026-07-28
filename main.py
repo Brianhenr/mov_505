@@ -184,12 +184,11 @@ def executar_pull_saldo(plano_de_movimentacao):
             channel="msedge",
             no_viewport=True,
             args=[
-                "--disable-extensions",
                 "--accept-lang=pt-BR,pt",
-                "--start-maximized",
-                "--no-sandobox"
+                "--start-maximized"
             ]
         )
+        
         pagina = context.pages[0] if context.pages else context.new_page()
 
         try:
@@ -207,6 +206,7 @@ def executar_pull_saldo(plano_de_movimentacao):
             pagina.wait_for_timeout(3800)
             pagina.get_by_role("button", name="Ok").click(timeout=5000)
             pagina.wait_for_timeout(2000)
+            
 
             iframe = pagina.frame_locator("iframe")
             iframe.get_by_role("textbox", name="Insira seu usuário").wait_for(timeout=30000)
@@ -235,16 +235,14 @@ def executar_pull_saldo(plano_de_movimentacao):
             pagina.wait_for_timeout(2000)
 
             pagina.get_by_title("Movimentação Múltipla").click()
-            pagina.wait_for_timeout(10000)
+            pagina.wait_for_timeout(15000)
 
             precisa_clicar_incluir = True
 
-            # ── NOVO: LAÇO MESTRE QUE SEPARA OS DOCUMENTOS POR TAT ──
             for tat_atual, dados_tat in plano_de_movimentacao.items():
                 linhas_para_digitar = dados_tat['linhas']
                 indices_processados = dados_tat['indices']
 
-                # Se por algum motivo o grupo não tiver linhas (falta de saldo), pula para a próxima TAT
                 if not linhas_para_digitar:
                     continue
 
@@ -253,105 +251,129 @@ def executar_pull_saldo(plano_de_movimentacao):
                     pagina.get_by_role("button", name="Incluir", exact=True).click()
                     pagina.wait_for_timeout(5500)
                 else:
-                    print(f"A tela de inclusão ja esta aberta. Pulando click...")
+                    print("A tela de inclusão ja esta aberta. Pulando click...")
 
                 print("Preenchendo Cabeçalho (505)...")
                 locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
                 locator_tm.fill("505")
-                pagina.wait_for_timeout(5000)
+                pagina.wait_for_timeout(5500)
 
-                # Laço interno que preenche a grid APENAS com os materiais desta TAT
-                for linha_idx, item in enumerate(linhas_para_digitar):
-                    print(f"Digitando Linha {linha_idx}: {item['quantidade']} un. de {item['produto']} | End: {item['endereco']} | TAT: {item['tat']}")
+                try:
+                    for linha_idx, item in enumerate(linhas_para_digitar):
+                        print(f"Digitando Linha {linha_idx}: {item['quantidade']} un. de {item['produto']} | End: {item['endereco']} | TAT: {item['tat']}")
 
-                    linha_alvo = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx)
+                        linha_alvo = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx)
 
-                    celula_prod = linha_alvo.locator("td[id='0']")
-                    produto = ativar_celula_robustamente(pagina, celula_prod, 'wa-text-input[name="M->D3_COD"] input')
-                    produto.fill(item['produto'])
-                    pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(5000)
+                        # Produto
+                        celula_prod = linha_alvo.locator("td[id='0']")
+                        produto = ativar_celula_robustamente(pagina, celula_prod, 'wa-text-input[name="M->D3_COD"] input')
+                        produto.fill(item['produto'])
+                        pagina.keyboard.press("Enter")
+                        produto.wait_for(state="hidden", timeout=5000)
 
-                    celula_qtd = linha_alvo.locator("td[id='2']")
-                    qtd = ativar_celula_robustamente(pagina, celula_qtd, 'wa-text-input[name="M->D3_QUANT"] input')
-                    qtd_str = str(item['quantidade']).replace('.', ',') if item['quantidade'] % 1 != 0 else str(int(item['quantidade']))
-                    qtd.fill(qtd_str)
-                    pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(5000)
+                        # Quantidade
+                        celula_qtd = linha_alvo.locator("td[id='2']")
+                        qtd = ativar_celula_robustamente(pagina, celula_qtd, 'wa-text-input[name="M->D3_QUANT"] input')
+                        qtd_str = str(item['quantidade']).replace('.', ',') if item['quantidade'] % 1 != 0 else str(int(item['quantidade']))
+                        qtd.fill(qtd_str)
+                        pagina.keyboard.press("Enter")
+                        qtd.wait_for(state="hidden", timeout=5000)
 
-                    # Observacao
-                    try: 
-                        celula_obs = linha_alvo.locator('td[id="3"]')
-                        obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
-                        obs.fill("REPOSIÇÃO")
-                        pagina.get_by_title("Ok").click()
-                        pagina.wait_for_timeout(5000)
-                    except Exception as e:
-                        print(f"Ao marcar observação deu o erro: {e}")
+                        # Observação
+                        try:
+                            celula_obs = linha_alvo.locator('td[id="3"]')
+                            obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
+                            obs.fill("REPOSIÇÃO")
+                            pagina.get_by_title("Ok").click()
+                            pagina.wait_for_timeout(1000)
+                        except Exception as e:
+                            print(f"Ao marcar observação deu o erro: {e}")
 
-                    # Endereço
-                    celula_end = linha_alvo.locator("td[id='8']")
-                    endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')
-                    endereco.fill(item['endereco'])
-                    pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(5000)
+                        # Endereço
+                        celula_end = linha_alvo.locator("td[id='8']")
+                        endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')
+                        endereco.fill(item['endereco'])
+                        pagina.keyboard.press("Enter")
+                        endereco.wait_for(state="hidden", timeout=5000)
 
-                    
-                     # TAT
-                    celula_tat = linha_alvo.locator('td[id="31"]')
-                    tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
-                    tat_input.fill(f"TAT {item['tat']}")
-                    pagina.keyboard.press("Enter")
-                    pagina.wait_for_timeout(1000)
-
-                    # Cria o localizador apontando para o componente pai correto
-                    botao_fechar = pagina.locator('wa-button').filter(has_text="Fechar")
-
-                    # Usa o .is_visible() para realmente testar o estado da tela naquele milissegundo
-                    if botao_fechar.is_visible():
-                        print(f"⚠️ Modal de erro detectado para a TAT {item['tat']}!")
-                        botao_fechar.click()
-                        pagina.wait_for_timeout(1000)
-                        
-                        # [LÓGICA DE ABORTO DEVE ENTRAR AQUI]
+                        # TAT — com retry (com prefixo → sem prefixo) e abort se as duas falharem
                         celula_tat = linha_alvo.locator('td[id="31"]')
                         tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
-                        tat_input.fill(f"{item['tat']}")
+                        tat_input.fill(f"TAT {item['tat']}")
                         pagina.keyboard.press("Enter")
 
+                        botao_fechar = pagina.locator('wa-button').filter(has_text="Fechar")
 
-                    if linha_idx < len(linhas_para_digitar) - 1:
-                        pagina.keyboard.press("ArrowDown")
-                        nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
-                        nova_linha.wait_for(state="attached", timeout=5000)
-                        pagina.wait_for_timeout(5000)
+                        try:
+                            botao_fechar.wait_for(state="visible", timeout=2000)
+                            modal_apareceu = True
+                        except Exception:
+                            modal_apareceu = False
 
-                # ── SALVAMENTO DO DOCUMENTO DA TAT ATUAL ──
-                print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
-                pagina.locator('wa-button').filter(has_text="Salvar").click(force=True)
-                
-                # Valida se ESTE documento salvou com sucesso
-                if confirmar_salvamento(pagina):
-                    print(f"✓ Movimentação da TAT {tat_atual} confirmada!")
-                    caminho_csv = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
-                    df_atualizar = pd.read_csv(caminho_csv)
-                    df_atualizar.loc[indices_processados, "STATUS_REGISTRO"] = "CONCLUIDO"
-                    df_atualizar.to_csv(caminho_csv, index=False)
-                    print(f"✓ Itens do CSV atualizados.")
+                        if modal_apareceu:
+                            print(f"⚠️ Modal de erro detectado para a TAT {item['tat']} (com prefixo). Tentando sem prefixo...")
+                            botao_fechar.click()
+                            pagina.wait_for_timeout(1000)
 
-                    precisa_clicar_incluir = False
-                else:
-                    print(f"⚠ Salvamento da TAT {tat_atual} não confirmado.")
-                    recuperar_tela(pagina)
+                            celula_tat = linha_alvo.locator('td[id="31"]')
+                            tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
+                            tat_input.fill(f"{item['tat']}")
+                            pagina.keyboard.press("Enter")
 
+                            try:
+                                botao_fechar.wait_for(state="visible", timeout=2000)
+                                segunda_falha = True
+                            except Exception:
+                                segunda_falha = False
+
+                            if segunda_falha:
+                                print(f"✗ ABORTANDO documento: TAT {item['tat']} rejeitada mesmo sem prefixo.")
+                                botao_fechar.click()
+                                pagina.wait_for_timeout(1000)
+                                recuperar_tela(pagina)
+                                raise RuntimeError(f"TAT inválida: {item['tat']} (produto {item['produto']})")
+
+                        # Próxima linha
+                        if linha_idx < len(linhas_para_digitar) - 1:
+                            pagina.keyboard.press("ArrowDown")
+                            nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
+                            nova_linha.wait_for(state="attached", timeout=5000)
+                            pagina.wait_for_timeout(5000)
+
+                    # Salvamento do documento da TAT atual
+                    print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
+                    pagina.locator('wa-button').filter(has_text="Salvar").click()
+                    pagina.wait_for_timeout(5000)
+
+                    if confirmar_salvamento(pagina):
+                        print(f"✓ Movimentação da TAT {tat_atual} confirmada!")
+                        caminho_csv = os.path.join(PASTA_DOCUMENTOS, "registros_saida.csv")
+                        df_atualizar = pd.read_csv(caminho_csv)
+                        df_atualizar.loc[indices_processados, "STATUS_REGISTRO"] = "CONCLUIDO"
+                        df_atualizar.to_csv(caminho_csv, index=False)
+                        print("✓ Itens do CSV atualizados.")
+                        precisa_clicar_incluir = False
+                    else:
+                        print(f"⚠ Salvamento da TAT {tat_atual} não confirmado.")
+                        recuperar_tela(pagina)
+                        precisa_clicar_incluir = True
+
+                except RuntimeError as erro_tat:
+                    print(f"✗ Documento da TAT {tat_atual} abortado: {erro_tat}")
+                    print("   Linha(s) do CSV mantidas como ATIVO para revisão manual.")
                     precisa_clicar_incluir = True
+                    # Não mexe no CSV — indices_processados dessa TAT continuam ATIVO
 
             print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
 
         except Exception as erro:
             print(f"Erro fatal na automação Web: {erro}")
             
-
+        finally: # <--- ADICIONE ISSO
+                # Garante o salvamento dos dados no perfil antes de fechar o Playwright
+                if 'context' in locals():
+                    print("Salvando perfil e encerrando o navegador...")
+                    context.close()
 if __name__ == '__main__':
     perguntar_puxar_saldo()
     caminho_saldo = pegar_ultimo_relatorio()
@@ -362,3 +384,4 @@ if __name__ == '__main__':
     
     # Envia o Dicionário para o robô web processar
     executar_pull_saldo(plano_agrupado)
+    
