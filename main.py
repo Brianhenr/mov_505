@@ -4,7 +4,7 @@ import subprocess
 import glob
 
 # Importando os módulos do nosso sistema
-from business_logic import recuperar_pendencias_travadas, planejar_movimentacao
+from bussines_logic import recuperar_pendencias_travadas, planejar_movimentacao
 from bot_protheus import executar_robo_protheus
 
 PASTA_BASE = os.path.dirname(os.path.abspath(__file__))
