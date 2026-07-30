@@ -4,22 +4,50 @@ import pandas as pd
 import streamlit as st
 from database import db
 
+# ==========================================
+# SOLUÇÃO 3: ACESSIBILIDADE E LAYOUT MOBILE
+# ==========================================
+st.set_page_config(
+    page_title="Sistema 505", 
+    layout="centered", # Mantém a interface ideal para telas de celular/coletor
+    initial_sidebar_state="collapsed"
+)
+
+# Injeção de CSS para aumentar legibilidade para PCDs e facilitar o toque em mobile
+st.markdown("""
+    <style>
+    /* Aumenta a fonte geral do aplicativo */
+    html, body, [class*="css"] {
+        font-size: 18px !important;
+    }
+    /* Aumenta a altura dos botões para facilitar o toque na tela */
+    .stButton>button {
+        min-height: 60px;
+        font-weight: bold;
+        font-size: 18px !important;
+    }
+    /* Aumenta o tamanho das caixas de seleção */
+    div[data-baseweb="select"] {
+        font-size: 18px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+
 # Cache ajustado para leitura rápida do banco de dados na nuvem
 @st.cache_data(ttl=600) 
 def carregar_dados():
-    # 1. Carrega e filtra os projetos direto do Supabase (Nuvem)
+    # 1. Carrega e filtra os projetos (Mantido como estava)
     try:
         res_proj = db.table("projetos").select("*").execute()
         df_fabrica = pd.DataFrame(res_proj.data)
         
         if not df_fabrica.empty:
-            # Renomeia as colunas do banco para manter a exata compatibilidade com o seu código original
             df_fabrica = df_fabrica.rename(columns={
                 "projeto": "PROJETO", "lote": "LOTE", "nome_projeto": "NOME_PROJETO", 
                 "tat": "TAT", "status": "STATUS"
             })
             
-            # Regras de Negócio Originais preservadas
             df_projetos = df_fabrica[df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA", "MONTADO", "APONTADO"])].copy()
             df_projetos["PROJETO"] = df_projetos["PROJETO"].astype(str).str.strip()
             df_projetos["LOTE"] = df_projetos["LOTE"].astype(str).str.strip()
@@ -31,13 +59,32 @@ def carregar_dados():
         st.error(f"Erro ao carregar projetos do banco: {e}")
         df_projetos = pd.DataFrame(columns=["PROJETO", "LOTE", "NOME_PROJETO", "BUSCA", "TAT"])
 
-    # 2. Carrega e filtra os produtos direto do Supabase (Nuvem)
+    # ==========================================
+    # SOLUÇÃO 2: PAGINAÇÃO PARA LER OS 77.000 PRODUTOS
+    # ==========================================
     try:
-        res_prod = db.table("produtos").select("*").execute()
-        df_produtos_nuvem = pd.DataFrame(res_prod.data)
+        todos_produtos = []
+        inicio = 0
+        tamanho_bloco = 1000
+        
+        # Loop para baixar toda a base da nuvem contornando o limite de 1000 da API
+        while True:
+            res_prod = db.table("produtos").select("*").range(inicio, inicio + tamanho_bloco - 1).execute()
+            dados = res_prod.data
+            
+            if not dados: # Se vier vazio, acabou a tabela
+                break
+                
+            todos_produtos.extend(dados)
+            
+            if len(dados) < tamanho_bloco: # Se vier menos que 1000, chegou no fim
+                break
+                
+            inicio += tamanho_bloco
+            
+        df_produtos_nuvem = pd.DataFrame(todos_produtos)
         
         if not df_produtos_nuvem.empty:
-            # Renomeia as colunas do banco para manter a exata compatibilidade com o seu código original
             df_produtos_nuvem = df_produtos_nuvem.rename(columns={
                 "codigo": "Codigo", "descricao": "Descricao"
             })
@@ -47,7 +94,7 @@ def carregar_dados():
             df_produtos["Descricao"] = df_produtos["Descricao"].astype(str).str.strip()
             df_produtos["BUSCA"] = (df_produtos["Codigo"] + " " + df_produtos["Descricao"]).str.upper()
             
-            # Filtro de exibição padrão (Regra de Negócio Original Rigorosamente Preservada)
+            # Filtro de exibição padrão INTACTO (Sua Regra de Negócio)
             filtrado = df_produtos[df_produtos["Codigo"].str.startswith(("10.", "27."))].copy()
             filtrado["EXIBICAO"] = filtrado["Codigo"] + " - " + filtrado["Descricao"]
         else:
@@ -60,10 +107,6 @@ def carregar_dados():
         
     return df_projetos, df_produtos, filtrado
 
-# =====================================================================
-# A PARTIR DAQUI, O CÓDIGO É 100% O SEU ORIGINAL, SEM NENHUMA ALTERAÇÃO
-# =====================================================================
-
 def filtrar(df, coluna, texto, limite=50):
     if df.empty:
         return df
@@ -72,7 +115,6 @@ def filtrar(df, coluna, texto, limite=50):
     return df.head(limite)
 
 def gravar(projeto_nome, codigo, qtd, resp, tat):
-    # Mantemos a geração de ID único e gravação no banco de dados
     novo_id = str(uuid.uuid4())
     
     dados = {
@@ -141,7 +183,6 @@ with c1:
         if not (projeto and material and resp):
             st.error("Preencha todos os campos.")
         else:
-            # Mantém a validação rigorosa de materiais (Regra de Negócio Original)
             if manual:
                 codigo = material.strip()
                 if not df_prod.empty and codigo not in df_prod["Codigo"].tolist():
@@ -168,7 +209,6 @@ st.divider()
 st.subheader("📋 Status das Requisições Recentes")
 
 def mostrar_status_recentes():
-    # Puxa o painel visual da nuvem
     res = db.table("requisicoes").select("projeto_nome, codigo_material, quantidade, status_registro, motivo_erro").order("data_hora", desc=True).limit(10).execute()
     df_status = pd.DataFrame(res.data)
     
