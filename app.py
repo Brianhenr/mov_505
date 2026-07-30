@@ -115,18 +115,15 @@ def gravar(projeto_nome, codigo, qtd, resp, tat):
     st.session_state['ultimo_id'] = novo_id
 
 def desfazer(responsavel_atual):
-    """
-    Estratégia segura multiusuário: 
-    Tenta cancelar pelo ID da sessão atual. Se não encontrar, 
-    busca no banco o último registro ATIVO pertencente ao responsável selecionado.
-.   """
     id_para_cancelar = st.session_state.get('ultimo_id')
     
     if not id_para_cancelar and responsavel_atual:
-        # Fallback de segurança: busca o último registro ATIVO do responsável no banco
         res_busca = db.table("requisicoes").select("id").eq("responsavel", responsavel_atual).eq("status_registro", "ATIVO").order("data_hora", desc=True).limit(1).execute()
-        if res_busca.data:
-            id_para_cancelar = res_busca.data[0]['id']
+        data = getattr(res_busca, 'data', None)
+        if data and isinstance(data, list) and len(data) > 0:
+            primeiro_item = data[0]
+            if isinstance(primeiro_item, dict):
+                id_para_cancelar = primeiro_item.get('id')
 
     if id_para_cancelar:
         db.table("requisicoes").update({"status_registro": "CANCELADO"}).eq("id", id_para_cancelar).execute()
@@ -215,7 +212,6 @@ def mostrar_status_recentes():
         for index, row in df_status.iterrows():
             texto_base = f"**{int(row['quantidade'])}x {row['codigo_material']}** para {row['projeto_nome']}"
             
-            # Tratamento visual correto para cada status do banco
             if row['status_registro'] == 'CONCLUIDO':
                 st.success(f"✅ Concluído: {texto_base}")
             elif row['status_registro'] == 'CANCELADO':
