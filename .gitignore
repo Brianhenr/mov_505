@@ -9,3 +9,4 @@ documentos/
 .env
 __pycache__/
 puxar_saldo.py
+rodar_automatico.py
