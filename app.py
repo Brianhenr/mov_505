@@ -139,27 +139,30 @@ df_proj, df_prod, df_filtrado = carregar_dados()
 
 st.title("Sistema de Requisição Extra - 505")
 
-busca_proj = st.text_input("Buscar projeto")
+# Campos de Projeto com controle de estado
+busca_proj = st.text_input("Buscar projeto", key="busca_proj")
 proj_df = filtrar(df_proj, "BUSCA", busca_proj)
 projeto = st.selectbox(
     "Projeto",
     proj_df["NOME_PROJETO"].tolist() if not proj_df.empty else [],
     index=None,
+    key="projeto_selecionado"
 )
 
 st.divider()
 
-manual = st.checkbox("Material fora do padrão")
+manual = st.checkbox("Material fora do padrão", key="manual_check")
 
 if manual:
-    material = st.text_input("Código do material")
+    material = st.text_input("Código do material", key="material_manual")
 else:
-    busca_mat = st.text_input("Buscar material (código ou descrição)")
+    busca_mat = st.text_input("Buscar material (código ou descrição)", key="busca_mat")
     mat_df = filtrar(df_filtrado, "BUSCA", busca_mat)
     material = st.selectbox(
         "Material",
         mat_df["EXIBICAO"].tolist() if not mat_df.empty else [],
         index=None,
+        key="material_select"
     )
 
 st.divider()
@@ -168,9 +171,10 @@ resp = st.selectbox(
     "Responsável",
     ["Eduardo", "Chico Louco", "Mairo", "Natan", "Odair", "Outro..."],
     index=None,
+    key="resp_select"
 )
 
-qtd = st.number_input("Quantidade", min_value=1, step=1)
+qtd = st.number_input("Quantidade", min_value=1, step=1, key="qtd_input")
 
 c1, c2 = st.columns(2)
 
@@ -195,6 +199,15 @@ with c1:
             tat = projeto_info.iloc[0]["TAT"]
             
             gravar(projeto, codigo, qtd, resp, tat)
+            
+            # Limpeza automática de todos os campos, exceto o projeto selecionado
+            st.session_state['manual_check'] = False
+            st.session_state['busca_mat'] = ""
+            st.session_state['material_manual'] = ""
+            st.session_state['material_select'] = None
+            st.session_state['resp_select'] = None
+            st.session_state['qtd_input'] = 1
+            
             st.success("Registro salvo na fila com sucesso!")
             st.rerun()
 
@@ -221,7 +234,6 @@ def mostrar_status_recentes():
                 motivo = str(row.get('motivo_erro', ''))
                 st.error(f"❌ Erro: {texto_base} - Motivo: {motivo}")
                 
-                # Regex flexível e robusta para capturar "Disponível" / "Disponivel" independente de acentos ou maiúsculas
                 if "saldo" in motivo.lower():
                     try:
                         match = re.search(r"dispon[ií]vel[:\s]*([\d\.]+)", motivo, re.IGNORECASE)
