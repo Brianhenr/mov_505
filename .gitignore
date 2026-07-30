@@ -1,9 +1,11 @@
 *xlsx
 *csv
-*env
+.env
+__pycache__/
+documentos/
 */
 *.json
 .agents/
 .env
 __pycache__/
-documentos/
+puxar_saldo.py
