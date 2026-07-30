@@ -2,6 +2,7 @@ import os
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 from database import db
+import time
 
 # Carrega as variáveis de ambiente
 load_dotenv()
@@ -129,9 +130,12 @@ def executar_robo_protheus(plano_de_movimentacao):
             # Tela Principal
             botao_favoritos = pagina.locator('span[title="Favoritos"]')
             botao_favoritos.wait_for(state="visible", timeout=30000)
+
             
             print("Login OK. Acessando Movimentação Múltipla...")
             botao_favoritos.click()
+
+            time.sleep(5)
             
             # Correção do erro de sintaxe: removido o filter(state="visible")
             botao_mov = pagina.get_by_title("Movimentação Múltipla").first
@@ -140,7 +144,7 @@ def executar_robo_protheus(plano_de_movimentacao):
             botao_mov.hover()
             pagina.wait_for_timeout(800) 
             botao_mov.click()
-            
+            time.sleep(10)
             pagina.wait_for_load_state("networkidle", timeout=30000)
             
             precisa_clicar_incluir = True
@@ -157,6 +161,7 @@ def executar_robo_protheus(plano_de_movimentacao):
                 print(f"\n--- INICIANDO NOVO DOCUMENTO PARA A TAT: {tat_atual} ---")
                 
                 if precisa_clicar_incluir:
+                    time.sleep(4)
                     botao_incluir = pagina.get_by_role("button", name="Incluir", exact=True)
                     botao_incluir.wait_for(state="visible", timeout=30000)
                     botao_incluir.click()
