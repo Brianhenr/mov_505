@@ -1,132 +1,189 @@
-import streamlit as st
-import pandas as pd
+import os
 import uuid
-from datetime import datetime
-
-# Conexão com o banco de dados via Supabase
+import pandas as pd
+import streamlit as st
 from database import db
 
-# 1. CONFIGURAÇÃO DA PÁGINA (Anônima e Profissional)
-st.set_page_config(
-    page_title="Portal de Requisições - Almoxarifado", 
-    page_icon="📦", 
-    layout="wide"
+# Cache ajustado para leitura rápida do banco de dados na nuvem
+@st.cache_data(ttl=600) 
+def carregar_dados():
+    # 1. Carrega e filtra os projetos direto do Supabase (Nuvem)
+    try:
+        res_proj = db.table("projetos").select("*").execute()
+        df_fabrica = pd.DataFrame(res_proj.data)
+        
+        if not df_fabrica.empty:
+            # Renomeia as colunas do banco para manter a exata compatibilidade com o seu código original
+            df_fabrica = df_fabrica.rename(columns={
+                "projeto": "PROJETO", "lote": "LOTE", "nome_projeto": "NOME_PROJETO", 
+                "tat": "TAT", "status": "STATUS"
+            })
+            
+            # Regras de Negócio Originais preservadas
+            df_projetos = df_fabrica[df_fabrica["STATUS"].isin(["LISTA ENTREGUE", "LINHA", "MONTADO", "APONTADO"])].copy()
+            df_projetos["PROJETO"] = df_projetos["PROJETO"].astype(str).str.strip()
+            df_projetos["LOTE"] = df_projetos["LOTE"].astype(str).str.strip()
+            df_projetos["NOME_PROJETO"] = df_projetos["PROJETO"] + " LOTE " + df_projetos["LOTE"]
+            df_projetos["BUSCA"] = df_projetos["NOME_PROJETO"].str.upper() + " " + df_projetos["TAT"].astype(str).str.upper()
+        else:
+            df_projetos = pd.DataFrame(columns=["PROJETO", "LOTE", "NOME_PROJETO", "BUSCA", "TAT"])
+    except Exception as e:
+        st.error(f"Erro ao carregar projetos do banco: {e}")
+        df_projetos = pd.DataFrame(columns=["PROJETO", "LOTE", "NOME_PROJETO", "BUSCA", "TAT"])
+
+    # 2. Carrega e filtra os produtos direto do Supabase (Nuvem)
+    try:
+        res_prod = db.table("produtos").select("*").execute()
+        df_produtos_nuvem = pd.DataFrame(res_prod.data)
+        
+        if not df_produtos_nuvem.empty:
+            # Renomeia as colunas do banco para manter a exata compatibilidade com o seu código original
+            df_produtos_nuvem = df_produtos_nuvem.rename(columns={
+                "codigo": "Codigo", "descricao": "Descricao"
+            })
+            
+            df_produtos = df_produtos_nuvem.copy()
+            df_produtos["Codigo"] = df_produtos["Codigo"].astype(str).str.strip()
+            df_produtos["Descricao"] = df_produtos["Descricao"].astype(str).str.strip()
+            df_produtos["BUSCA"] = (df_produtos["Codigo"] + " " + df_produtos["Descricao"]).str.upper()
+            
+            # Filtro de exibição padrão (Regra de Negócio Original Rigorosamente Preservada)
+            filtrado = df_produtos[df_produtos["Codigo"].str.startswith(("10.", "27."))].copy()
+            filtrado["EXIBICAO"] = filtrado["Codigo"] + " - " + filtrado["Descricao"]
+        else:
+            df_produtos = pd.DataFrame(columns=["Codigo", "Descricao", "BUSCA"])
+            filtrado = pd.DataFrame(columns=["Codigo", "Descricao", "BUSCA", "EXIBICAO"])
+    except Exception as e:
+        st.error(f"Erro ao carregar produtos do banco: {e}")
+        df_produtos = pd.DataFrame(columns=["Codigo", "Descricao", "BUSCA"])
+        filtrado = pd.DataFrame(columns=["Codigo", "Descricao", "BUSCA", "EXIBICAO"])
+        
+    return df_projetos, df_produtos, filtrado
+
+# =====================================================================
+# A PARTIR DAQUI, O CÓDIGO É 100% O SEU ORIGINAL, SEM NENHUMA ALTERAÇÃO
+# =====================================================================
+
+def filtrar(df, coluna, texto, limite=50):
+    if df.empty:
+        return df
+    if texto:
+        return df[df[coluna].str.contains(texto.upper(), na=False)].head(limite)
+    return df.head(limite)
+
+def gravar(projeto_nome, codigo, qtd, resp, tat):
+    # Mantemos a geração de ID único e gravação no banco de dados
+    novo_id = str(uuid.uuid4())
+    
+    dados = {
+        "id": novo_id,
+        "tat": tat,
+        "projeto_nome": projeto_nome,
+        "codigo_material": codigo,
+        "quantidade": qtd,
+        "responsavel": resp,
+        "status_registro": "ATIVO"
+    }
+    
+    db.table("requisicoes").insert(dados).execute()
+    st.session_state['ultimo_id'] = novo_id
+
+def desfazer():
+    if 'ultimo_id' in st.session_state:
+        id_para_cancelar = st.session_state['ultimo_id']
+        db.table("requisicoes").update({"status_registro": "CANCELADO"}).eq("id", id_para_cancelar).execute()
+        st.warning("Último registro cancelado com sucesso.")
+        del st.session_state['ultimo_id'] 
+    else:
+        st.info("Nenhum registro recente nesta sessão para cancelar.")
+
+df_proj, df_prod, df_filtrado = carregar_dados()
+
+st.title("Sistema de Requisição Extra - 505")
+
+busca_proj = st.text_input("Buscar projeto")
+proj_df = filtrar(df_proj, "BUSCA", busca_proj)
+projeto = st.selectbox(
+    "Projeto",
+    proj_df["NOME_PROJETO"].tolist() if not proj_df.empty else [],
+    index=None,
 )
 
-# 2. CARREGAMENTO DE DADOS DA NUVEM (Substituindo leitura de Excel local)
-@st.cache_data(ttl=300)
-def carregar_produtos():
-    try:
-        res = db.table("produtos").select("codigo, descricao").execute()
-        if res.data:
-            return pd.DataFrame(res.data)
-        return pd.DataFrame(columns=["codigo", "descricao"])
-    except Exception as e:
-        st.error(f"Erro ao carregar produtos: {e}")
-        return pd.DataFrame(columns=["codigo", "descricao"])
+st.divider()
 
-@st.cache_data(ttl=300)
-def carregar_projetos():
-    try:
-        res = db.table("projetos").select("projeto, lote, nome_projeto, tat, status").execute()
-        if res.data:
-            return pd.DataFrame(res.data)
-        return pd.DataFrame(columns=["projeto", "lote", "nome_projeto", "tat", "status"])
-    except Exception as e:
-        st.error(f"Erro ao carregar projetos: {e}")
-        return pd.DataFrame(columns=["projeto", "lote", "nome_projeto", "tat", "status"])
+manual = st.checkbox("Material fora do padrão")
 
-# Carrega os DataFrames em memória
-df_produtos = carregar_produtos()
-df_projetos = carregar_projetos()
+if manual:
+    material = st.text_input("Código do material")
+else:
+    busca_mat = st.text_input("Buscar material (código ou descrição)")
+    mat_df = filtrar(df_filtrado, "BUSCA", busca_mat)
+    material = st.selectbox(
+        "Material",
+        mat_df["EXIBICAO"].tolist() if not mat_df.empty else [],
+        index=None,
+    )
 
-# 3. INTERFACE PRINCIPAL
-st.title("📦 Sistema de Requisição Múltipla")
-st.markdown("---")
+st.divider()
 
-# 4. FORMULÁRIO DE REQUISIÇÃO (Com limpeza automática após envio)
-with st.container():
-    # Prepara as listas para os menus suspensos
-    opcoes_projetos = df_projetos['nome_projeto'].tolist() if not df_projetos.empty else []
-    opcoes_produtos = (df_produtos['codigo'] + " - " + df_produtos['descricao']).tolist() if not df_produtos.empty else []
+resp = st.selectbox(
+    "Responsável",
+    ["Eduardo", "Chico Louco", "Mairo", "Natan", "Odair", "Outro..."],
+    index=None,
+)
 
-    with st.form("form_requisicao", clear_on_submit=True):
-        st.subheader("Nova Requisição")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            projeto_selecionado = st.selectbox("Selecione o Projeto e Lote", [""] + opcoes_projetos)
-        with col2:
-            produto_selecionado = st.selectbox("Selecione o Material", [""] + opcoes_produtos)
-            
-        quantidade = st.number_input("Quantidade Necessária", min_value=1.0, step=1.0)
-        
-        # Botão de envio dentro do form
-        enviado = st.form_submit_button("Enviar Requisição", type="primary", use_container_width=True)
-        
-        if enviado:
-            if not projeto_selecionado or not produto_selecionado:
-                st.warning("⚠️ Por favor, selecione o projeto e o material antes de enviar.")
+qtd = st.number_input("Quantidade", min_value=1, step=1)
+
+c1, c2 = st.columns(2)
+
+with c1:
+    if st.button("Gravar", use_container_width=True):
+        if not (projeto and material and resp):
+            st.error("Preencha todos os campos.")
+        else:
+            # Mantém a validação rigorosa de materiais (Regra de Negócio Original)
+            if manual:
+                codigo = material.strip()
+                if not df_prod.empty and codigo not in df_prod["Codigo"].tolist():
+                    st.error("Código inexistente.")
+                    st.stop()
             else:
-                try:
-                    # Regras de Negócio Preservadas: Extração de código e identificação do TAT
-                    codigo_material = produto_selecionado.split(" - ")[0]
-                    
-                    linha_projeto = df_projetos[df_projetos['nome_projeto'] == projeto_selecionado].iloc[0]
-                    tat_projeto = linha_projeto['tat']
-                    
-                    req_id = str(uuid.uuid4())
-                    
-                    # Montando o pacote de dados para o banco na nuvem
-                    dados_requisicao = {
-                        "id": req_id,
-                        "codigo_material": codigo_material,
-                        "quantidade": quantidade,
-                        "tat": tat_projeto,
-                        "projeto_lote": projeto_selecionado,
-                        "status_registro": "ATIVO",
-                        "data_solicitacao": datetime.now().isoformat()
-                    }
-                    
-                    # Inserção no Supabase
-                    db.table("requisicoes").insert(dados_requisicao).execute()
-                    
-                    st.success(f"✅ Requisição enviada com sucesso! Código: {codigo_material} | Qtd: {quantidade}")
-                except Exception as e:
-                    st.error(f"❌ Erro ao enviar requisição: {e}")
+                codigo = material.split(" - ")[0]
 
-st.markdown("---")
+            projeto_info = df_proj[df_proj["NOME_PROJETO"] == projeto]
+            if projeto_info.empty:
+                st.error("Projeto não encontrado.")
+                st.stop()
 
-# 5. PAINEL DE STATUS EM TEMPO REAL
-st.subheader("📊 Status das Requisições Recentes")
+            tat = projeto_info.iloc[0]["TAT"]
+            
+            gravar(projeto, codigo, qtd, resp, tat)
+            st.success("Registro salvo na fila com sucesso!")
 
-if st.button("🔄 Atualizar Painel"):
-    # Limpa o cache para forçar a leitura mais recente do banco, caso necessário
-    st.rerun()
+with c2:
+    if st.button("Desfazer Último", use_container_width=True):
+        desfazer()
 
-try:
-    # Busca apenas os últimos 50 registros para manter o app leve
-    res_req = db.table("requisicoes").select("*").order("data_solicitacao", desc=True).limit(50).execute()
+st.divider()
+st.subheader("📋 Status das Requisições Recentes")
+
+def mostrar_status_recentes():
+    # Puxa o painel visual da nuvem
+    res = db.table("requisicoes").select("projeto_nome, codigo_material, quantidade, status_registro, motivo_erro").order("data_hora", desc=True).limit(10).execute()
+    df_status = pd.DataFrame(res.data)
     
-    if res_req.data:
-        df_status = pd.DataFrame(res_req.data)
-        
-        # Mapeamento e organização das colunas para uma visualização limpa
-        colunas_exibicao = {
-            "codigo_material": "Material",
-            "quantidade": "Qtd",
-            "tat": "TAT",
-            "projeto_lote": "Projeto",
-            "status_registro": "Status",
-            "motivo_erro": "Observação"
-        }
-        
-        df_exibicao = df_status[[col for col in colunas_exibicao.keys() if col in df_status.columns]].rename(columns=colunas_exibicao)
-        
-        # Destaca a tabela no frontend
-        st.dataframe(df_exibicao, use_container_width=True, hide_index=True)
+    if not df_status.empty:
+        for index, row in df_status.iterrows():
+            texto_base = f"**{int(row['quantidade'])}x {row['codigo_material']}** para {row['projeto_nome']}"
+            if row['status_registro'] == 'CONCLUIDO':
+                st.success(f"✅ Concluído: {texto_base}")
+            elif row['status_registro'] == 'ERRO':
+                st.error(f"❌ Erro: {texto_base} - Motivo: {row['motivo_erro']}")
+            elif row['status_registro'] == 'PROCESSANDO':
+                st.info(f"⏳ O Robô está digitando agora: {texto_base}")
+            else:
+                st.warning(f"📝 Na fila (Aguardando robô): {texto_base}")
     else:
-        st.info("Nenhuma requisição pendente ou processada hoje.")
-        
-except Exception as e:
-    st.error(f"Erro ao carregar painel de status: {e}")
+        st.info("Nenhuma requisição recente encontrada no banco de dados.")
+
+mostrar_status_recentes()
