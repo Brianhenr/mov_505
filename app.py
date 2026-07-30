@@ -1,5 +1,6 @@
 import os
 import uuid
+import re
 import pandas as pd
 import streamlit as st
 from database import db
@@ -205,19 +206,54 @@ st.divider()
 st.subheader("📋 Status das Requisições Recentes")
 
 def mostrar_status_recentes():
-    res = db.table("requisicoes").select("projeto_nome, codigo_material, quantidade, status_registro, motivo_erro").order("data_hora", desc=True).limit(10).execute()
+    # Incluído 'id', 'tat' e 'responsavel' para permitir ações rápidas de ajuste de saldo
+    res = db.table("requisicoes").select("id, tat, projeto_nome, codigo_material, quantidade, responsavel, status_registro, motivo_erro").order("data_hora", desc=True).limit(10).execute()
     df_status = pd.DataFrame(res.data)
     
     if not df_status.empty:
         for index, row in df_status.iterrows():
-            texto_base = f"**{int(row['quantidade'])}x {row['codigo_material']}** para {row['projeto_nome']}"
+            texto_base = f"**{int(row['quantidade']) if pd.notna(row['quantidade']) else row['quantidade']}x {row['codigo_material']}** para {row['projeto_nome']}"
             
             if row['status_registro'] == 'CONCLUIDO':
                 st.success(f"✅ Concluído: {texto_base}")
             elif row['status_registro'] == 'CANCELADO':
                 st.warning(f"🚫 Cancelado: {texto_base}")
             elif row['status_registro'] == 'ERRO':
-                st.error(f"❌ Erro: {texto_base} - Motivo: {row['motivo_erro']}")
+                motivo = str(row.get('motivo_erro', ''))
+                st.error(f"❌ Erro: {texto_base} - Motivo: {motivo}")
+                
+                # Exibe o botão de ação rápida apenas se o erro for exclusivamente por falta de saldo
+                if "Falta de saldo" in motivo:
+                    try:
+                        match = re.search(r"Disponível:\s*([\d\.]+)", motivo)
+                        if match:
+                            qtd_disponivel = float(match.group(1))
+                            if qtd_disponivel > 0:
+                                btn_key = f"btn_saldo_{row['id']}"
+                                qtd_formatada = int(qtd_disponivel) if qtd_disponivel.is_integer() else qtd_disponivel
+                                
+                                if st.button(f"📦 Movimentar saldo disponível ({qtd_formatada}x)", key=btn_key, use_container_width=True):
+                                    # 1. Marca a requisição original como CANCELADA
+                                    db.table("requisicoes").update({"status_registro": "CANCELADO"}).eq("id", row['id']).execute()
+                                    
+                                    # 2. Cria a nova requisição automática com a quantidade disponível
+                                    novo_id = str(uuid.uuid4())
+                                    dados_novo = {
+                                        "id": novo_id,
+                                        "tat": row['tat'],
+                                        "projeto_nome": row['projeto_nome'],
+                                        "codigo_material": row['codigo_material'],
+                                        "quantidade": qtd_disponivel,
+                                        "responsavel": row['responsavel'] if row['responsavel'] else "Sistema",
+                                        "status_registro": "ATIVO"
+                                    }
+                                    db.table("requisicoes").insert(dados_novo).execute()
+                                    
+                                    st.success(f"Nova requisição criada com sucesso para o saldo disponível ({qtd_formatada}x)!")
+                                    st.rerun()
+                    except Exception:
+                        pass
+
             elif row['status_registro'] == 'PROCESSANDO':
                 st.info(f"⏳ O Robô está digitando agora: {texto_base}")
             else:
