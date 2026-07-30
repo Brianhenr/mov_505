@@ -5,39 +5,32 @@ import streamlit as st
 from database import db
 
 # ==========================================
-# SOLUÇÃO 3: ACESSIBILIDADE E LAYOUT MOBILE
+# ACESSIBILIDADE E LAYOUT MOBILE (PCD)
 # ==========================================
 st.set_page_config(
     page_title="Sistema 505", 
-    layout="centered", # Mantém a interface ideal para telas de celular/coletor
+    layout="centered", 
     initial_sidebar_state="collapsed"
 )
 
-# Injeção de CSS para aumentar legibilidade para PCDs e facilitar o toque em mobile
 st.markdown("""
     <style>
-    /* Aumenta a fonte geral do aplicativo */
     html, body, [class*="css"] {
         font-size: 18px !important;
     }
-    /* Aumenta a altura dos botões para facilitar o toque na tela */
     .stButton>button {
         min-height: 60px;
         font-weight: bold;
         font-size: 18px !important;
     }
-    /* Aumenta o tamanho das caixas de seleção */
     div[data-baseweb="select"] {
         font-size: 18px !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-
-# Cache ajustado para leitura rápida do banco de dados na nuvem
 @st.cache_data(ttl=600) 
 def carregar_dados():
-    # 1. Carrega e filtra os projetos (Mantido como estava)
     try:
         res_proj = db.table("projetos").select("*").execute()
         df_fabrica = pd.DataFrame(res_proj.data)
@@ -59,27 +52,19 @@ def carregar_dados():
         st.error(f"Erro ao carregar projetos do banco: {e}")
         df_projetos = pd.DataFrame(columns=["PROJETO", "LOTE", "NOME_PROJETO", "BUSCA", "TAT"])
 
-    # ==========================================
-    # SOLUÇÃO 2: PAGINAÇÃO PARA LER OS 77.000 PRODUTOS
-    # ==========================================
     try:
         todos_produtos = []
         inicio = 0
         tamanho_bloco = 1000
         
-        # Loop para baixar toda a base da nuvem contornando o limite de 1000 da API
         while True:
             res_prod = db.table("produtos").select("*").range(inicio, inicio + tamanho_bloco - 1).execute()
             dados = res_prod.data
-            
-            if not dados: # Se vier vazio, acabou a tabela
+            if not dados:
                 break
-                
             todos_produtos.extend(dados)
-            
-            if len(dados) < tamanho_bloco: # Se vier menos que 1000, chegou no fim
+            if len(dados) < tamanho_bloco:
                 break
-                
             inicio += tamanho_bloco
             
         df_produtos_nuvem = pd.DataFrame(todos_produtos)
@@ -94,7 +79,6 @@ def carregar_dados():
             df_produtos["Descricao"] = df_produtos["Descricao"].astype(str).str.strip()
             df_produtos["BUSCA"] = (df_produtos["Codigo"] + " " + df_produtos["Descricao"]).str.upper()
             
-            # Filtro de exibição padrão INTACTO (Sua Regra de Negócio)
             filtrado = df_produtos[df_produtos["Codigo"].str.startswith(("10.", "27."))].copy()
             filtrado["EXIBICAO"] = filtrado["Codigo"] + " - " + filtrado["Descricao"]
         else:
@@ -130,14 +114,28 @@ def gravar(projeto_nome, codigo, qtd, resp, tat):
     db.table("requisicoes").insert(dados).execute()
     st.session_state['ultimo_id'] = novo_id
 
-def desfazer():
-    if 'ultimo_id' in st.session_state:
-        id_para_cancelar = st.session_state['ultimo_id']
+def desfazer(responsavel_atual):
+    """
+    Estratégia segura multiusuário: 
+    Tenta cancelar pelo ID da sessão atual. Se não encontrar, 
+    busca no banco o último registro ATIVO pertencente ao responsável selecionado.
+.   """
+    id_para_cancelar = st.session_state.get('ultimo_id')
+    
+    if not id_para_cancelar and responsavel_atual:
+        # Fallback de segurança: busca o último registro ATIVO do responsável no banco
+        res_busca = db.table("requisicoes").select("id").eq("responsavel", responsavel_atual).eq("status_registro", "ATIVO").order("data_hora", desc=True).limit(1).execute()
+        if res_busca.data:
+            id_para_cancelar = res_busca.data[0]['id']
+
+    if id_para_cancelar:
         db.table("requisicoes").update({"status_registro": "CANCELADO"}).eq("id", id_para_cancelar).execute()
         st.warning("Último registro cancelado com sucesso.")
-        del st.session_state['ultimo_id'] 
+        if 'ultimo_id' in st.session_state:
+            del st.session_state['ultimo_id']
+        st.rerun()
     else:
-        st.info("Nenhum registro recente nesta sessão para cancelar.")
+        st.info("Nenhum registro recente encontrado para cancelar.")
 
 df_proj, df_prod, df_filtrado = carregar_dados()
 
@@ -200,10 +198,11 @@ with c1:
             
             gravar(projeto, codigo, qtd, resp, tat)
             st.success("Registro salvo na fila com sucesso!")
+            st.rerun()
 
 with c2:
     if st.button("Desfazer Último", use_container_width=True):
-        desfazer()
+        desfazer(resp)
 
 st.divider()
 st.subheader("📋 Status das Requisições Recentes")
@@ -215,8 +214,12 @@ def mostrar_status_recentes():
     if not df_status.empty:
         for index, row in df_status.iterrows():
             texto_base = f"**{int(row['quantidade'])}x {row['codigo_material']}** para {row['projeto_nome']}"
+            
+            # Tratamento visual correto para cada status do banco
             if row['status_registro'] == 'CONCLUIDO':
                 st.success(f"✅ Concluído: {texto_base}")
+            elif row['status_registro'] == 'CANCELADO':
+                st.warning(f"🚫 Cancelado: {texto_base}")
             elif row['status_registro'] == 'ERRO':
                 st.error(f"❌ Erro: {texto_base} - Motivo: {row['motivo_erro']}")
             elif row['status_registro'] == 'PROCESSANDO':
