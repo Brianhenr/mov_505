@@ -48,7 +48,7 @@ def executar_pull_saldo():
 
             iframe = pagina.frame_locator("iframe")
             iframe.get_by_role("textbox", name="Insira seu usuário").wait_for(timeout=30000)
-            pagina.wait_for_timeout(1000)
+            pagina.wait_for_timeout(2000)
             iframe.get_by_role("textbox", name="Insira seu usuário").fill(nome)
             iframe.get_by_role("textbox", name="Insira sua senha").fill(senha)
             pagina.wait_for_timeout(500)
@@ -71,7 +71,7 @@ def executar_pull_saldo():
             # ── NAVEGAÇÃO: Favoritos → Saldo Por Endereço ──
             print("Clicando em Favoritos...")
             pagina.locator('span[title="Favoritos"]').click()
-            pagina.wait_for_timeout(2500)
+            pagina.wait_for_timeout(3000)
 
             print("Clicando em Saldo Por Endereço...")
             pagina.locator('span[title="Saldo Por Endereço"]').click()
@@ -94,7 +94,7 @@ def executar_pull_saldo():
             # 3. Planilha
             print("Selecionando Planilha...")
             pagina.locator('button:has-text("Planilha")').click()
-            pagina.wait_for_timeout(2500)
+            pagina.wait_for_timeout(3000)
 
             # 4. Tab 4x até o campo de nome, seleciona tudo e digita
             print("Digitando nome do arquivo...")
@@ -103,11 +103,11 @@ def executar_pull_saldo():
 
             for _ in range(4):
                 pagina.keyboard.press("Tab")
-                pagina.wait_for_timeout(200)
+                pagina.wait_for_timeout(300)
             pagina.keyboard.press("Control+a")
-            pagina.wait_for_timeout(200)
+            pagina.wait_for_timeout(300)
             pagina.keyboard.type(nome_arquivo, delay=50)
-            pagina.wait_for_timeout(500)
+            pagina.wait_for_timeout(300)
 
             # 5. Mudar Ambiente de Servidor pra Local
             print("Mudando Ambiente pra Local...")

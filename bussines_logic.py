@@ -64,7 +64,7 @@ def planejar_movimentacao(caminho_saldo):
             print(f"  IGNORADO: {codigo_req} pede {qtd_pedida}, mas só tem {total_disp} no armazém 01.")
             db.table("requisicoes").update({
                 "status_registro": "ERRO",
-                "motivo_erro": f"Falta de saldo. Pedido: {qtd_pedida}, Disp: {total_disp}"
+                "motivo_erro": f"Falta de saldo. Pedido: {qtd_pedida}, Disponivel: {total_disp}"
             }).eq("id", id_banco).execute()
             continue
             

@@ -3,3 +3,7 @@
 *env
 */
 *.json
+.agents/
+.env
+__pycache__/
+documentos/

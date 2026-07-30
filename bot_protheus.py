@@ -69,9 +69,7 @@ def executar_robo_protheus(plano_de_movimentacao):
             headless=False,
             channel="msedge",
             no_viewport=True,
-            permissions=["clipboard-read", "clipboard-write", "notifications"],
-            ignore_default_args=["--no-sandbox"],
-            args=["--accept-lang=pt-BR,pt", "--start-maximized"]
+            args=["--start-maximized"]
         )
         pagina = context.pages[0] if context.pages else context.new_page()
         
@@ -81,6 +79,7 @@ def executar_robo_protheus(plano_de_movimentacao):
             print("Acessando o Protheus...")
             pagina.goto(web, wait_until="networkidle", timeout=60000)
             
+            # Modal de permissão inicial (se houver)
             try:
                 botao_permitir = pagina.get_by_role("button", name="Permitir")
                 botao_permitir.wait_for(state="visible", timeout=3000)
@@ -90,19 +89,26 @@ def executar_robo_protheus(plano_de_movimentacao):
                 
             pagina.bring_to_front()
             
+            # Botão OK de Boas-vindas
             botao_ok = pagina.get_by_role("button", name="Ok")
             botao_ok.wait_for(state="visible", timeout=15000)
             botao_ok.click()
+            botao_ok.wait_for(state="hidden", timeout=10000)
             
             iframe = pagina.frame_locator("iframe")
             
+            # Preenchimento do Login
             input_usuario = iframe.get_by_role("textbox", name="Insira seu usuário")
             input_usuario.wait_for(state="visible", timeout=30000)
             input_usuario.fill(nome)
             
             iframe.get_by_role("textbox", name="Insira sua senha").fill(senha)
-            iframe.get_by_role("button", name="Entrar").click()
+            botao_entrar_login = iframe.get_by_role("button", name="Entrar")
+            botao_entrar_login.click()
             
+            input_usuario.wait_for(state="hidden", timeout=15000)
+            
+            # Preenchimento de Grupo/Filial
             input_grupo = iframe.get_by_role("textbox", name="Grupo")
             input_grupo.wait_for(state="visible", timeout=15000)
             input_grupo.fill("01")
@@ -112,18 +118,30 @@ def executar_robo_protheus(plano_de_movimentacao):
             iframe.get_by_role("textbox", name="Papel de trabalho").fill("04")
             
             iframe.locator("div").filter(has_text="Linha Protheus Boas-vindas,").nth(1).click()
-            iframe.get_by_role("button", name="Entrar").click()
             
-            print("Aguardando carregamento da tela principal...")
+            botao_entrar_modulo = iframe.get_by_role("button", name="Entrar")
+            botao_entrar_modulo.click()
+            botao_entrar_modulo.wait_for(state="hidden", timeout=30000)
+            
+            print("Aguardando carregamento completo da interface...")
+            pagina.wait_for_load_state("networkidle", timeout=30000)
+            
+            # Tela Principal
             botao_favoritos = pagina.locator('span[title="Favoritos"]')
-            botao_favoritos.wait_for(state="visible", timeout=60000)
+            botao_favoritos.wait_for(state="visible", timeout=30000)
             
             print("Login OK. Acessando Movimentação Múltipla...")
             botao_favoritos.click()
             
-            botao_mov = pagina.get_by_title("Movimentação Múltipla")
+            # Correção do erro de sintaxe: removido o filter(state="visible")
+            botao_mov = pagina.get_by_title("Movimentação Múltipla").first
             botao_mov.wait_for(state="visible", timeout=15000)
+            
+            botao_mov.hover()
+            pagina.wait_for_timeout(800) 
             botao_mov.click()
+            
+            pagina.wait_for_load_state("networkidle", timeout=30000)
             
             precisa_clicar_incluir = True
             for tat_atual, dados_tat in plano_de_movimentacao.items():
@@ -151,10 +169,9 @@ def executar_robo_protheus(plano_de_movimentacao):
                 locator_tm.fill("505")
                 pagina.keyboard.press("Enter")
                 
-                # Aguarda a grade liberar (espera a primeira célula da tabela aparecer)
                 primeira_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(0)
                 primeira_linha.locator("td[id='0']").wait_for(state="visible", timeout=15000)
-                pagina.wait_for_timeout(500) # Pequena pausa para o JS da tabela assentar
+                pagina.wait_for_timeout(500) 
                 
                 try:
                     for linha_idx, item in enumerate(linhas_para_digitar):
@@ -179,8 +196,15 @@ def executar_robo_protheus(plano_de_movimentacao):
                             obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
                             obs.fill("REPOSIÇÃO")
                             pagina.get_by_title("Ok").click()
-                            # Aqui o modal do Protheus fecha rápido, aguardamos ele sumir dinamicamente
-                            pagina.locator('wa-dialog').wait_for(state="hidden", timeout=3000)
+                            
+                            # Correção do erro de sintaxe: removido o filter(state="visible")
+                            botao_ok_obs = pagina.get_by_title("Ok").first
+                            # Só executamos essa espera se o botão ainda estiver na tela
+                            try:
+                                botao_ok_obs.wait_for(state="hidden", timeout=5000)
+                            except Exception:
+                                pass # Se o botão sumiu instantaneamente, ignora o erro
+                            
                         except Exception as e:
                             print(f"Ao marcar observação deu erro: {e}")
                             
@@ -197,28 +221,28 @@ def executar_robo_protheus(plano_de_movimentacao):
                         
                         botao_fechar = pagina.locator('wa-button').filter(has_text="Fechar")
                         try:
-                            botao_fechar.wait_for(state="visible", timeout=2000)
+                            botao_fechar.first.wait_for(state="visible", timeout=2000)
                             modal_apareceu = True
                         except Exception:
                             modal_apareceu = False
                             
                         if modal_apareceu:
                             print(f"  Modal de erro detectado para a TAT {item['tat']} (com prefixo). Tentando sem prefixo...")
-                            botao_fechar.click()
+                            botao_fechar.first.click()
                             pagina.wait_for_timeout(500)
                             celula_tat = linha_alvo.locator('td[id="31"]')
                             tat_input = ativar_celula_robustamente(pagina, celula_tat, 'wa-text-input[name="M->D3_CLVL"] input')
                             tat_input.fill(f"{item['tat']}")
                             pagina.keyboard.press("Enter")
                             try:
-                                botao_fechar.wait_for(state="visible", timeout=2000)
+                                botao_fechar.first.wait_for(state="visible", timeout=2000)
                                 segunda_falha = True
                             except Exception:
                                 segunda_falha = False
                                 
                             if segunda_falha:
                                 print(f"  ABORTANDO documento: TAT {item['tat']} rejeitada.")
-                                botao_fechar.click()
+                                botao_fechar.first.click()
                                 pagina.wait_for_timeout(500)
                                 recuperar_tela(pagina)
                                 raise RuntimeError(f"TAT inválida no Protheus: {item['tat']}")
@@ -227,7 +251,6 @@ def executar_robo_protheus(plano_de_movimentacao):
                             pagina.keyboard.press("ArrowDown")
                             nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
                             nova_linha.wait_for(state="attached", timeout=5000)
-                            # Removido o fixed wait enorme de 5000ms daqui. Agora o robô voa pra próxima linha!
                             pagina.wait_for_timeout(300) 
                             
                     print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
