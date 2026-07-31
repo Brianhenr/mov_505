@@ -176,10 +176,22 @@ resp = st.selectbox(
 
 qtd = st.number_input("Quantidade", min_value=1, step=1, key="qtd_input")
 
+# ==========================================
+# FUNÇÃO DE CALLBACK PARA LIMPEZA DE CAMPOS
+# ==========================================
+def limpar_campos_exceto_projeto():
+    st.session_state['manual_check'] = False
+    st.session_state['busca_mat'] = ""
+    st.session_state['material_manual'] = ""
+    st.session_state['material_select'] = None
+    st.session_state['resp_select'] = None
+    st.session_state['qtd_input'] = 1
+
 c1, c2 = st.columns(2)
 
 with c1:
-    if st.button("Gravar", use_container_width=True):
+    # Passando o callback no on_click para evitar o StreamlitAPIException
+    if st.button("Gravar", use_container_width=True, on_click=limpar_campos_exceto_projeto):
         if not (projeto and material and resp):
             st.error("Preencha todos os campos.")
         else:
@@ -199,14 +211,6 @@ with c1:
             tat = projeto_info.iloc[0]["TAT"]
             
             gravar(projeto, codigo, qtd, resp, tat)
-            
-            # Limpeza automática de todos os campos, exceto o projeto selecionado
-            st.session_state['manual_check'] = False
-            st.session_state['busca_mat'] = ""
-            st.session_state['material_manual'] = ""
-            st.session_state['material_select'] = None
-            st.session_state['resp_select'] = None
-            st.session_state['qtd_input'] = 1
             
             st.success("Registro salvo na fila com sucesso!")
             st.rerun()
