@@ -192,14 +192,17 @@ def processar_gravacao():
         mat_atual = st.session_state.get('material_manual', '')
     else:
         mat_atual = st.session_state.get('material_select')
-        
+
     if not (proj_atual and mat_atual and resp_atual):
         st.session_state['mensagem_erro'] = "Preencha todos os campos."
         return
-        
+
     if is_manual:
         codigo = mat_atual.strip()
-        if not df_prod.empty and codigo not in df_prod["Codigo"].tolist():
+        if df_prod.empty:
+            st.session_state['mensagem_erro'] = "Não foi possível validar o código: base de produtos indisponível no momento. Tente novamente em instantes."
+            return
+        if codigo not in df_prod["Codigo"].tolist():
             st.session_state['mensagem_erro'] = "Código inexistente."
             return
     else:
