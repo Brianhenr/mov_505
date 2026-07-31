@@ -177,47 +177,71 @@ resp = st.selectbox(
 qtd = st.number_input("Quantidade", min_value=1, step=1, key="qtd_input")
 
 # ==========================================
-# FUNÇÃO DE CALLBACK PARA LIMPEZA DE CAMPOS
+# FUNÇÃO DE PROCESSAMENTO E VALIDAÇÃO (CALLBACK)
 # ==========================================
-def limpar_campos_exceto_projeto():
+def processar_gravacao():
+    st.session_state['mensagem_erro'] = None
+    st.session_state['mensagem_sucesso'] = None
+    
+    proj_atual = st.session_state.get('projeto_selecionado')
+    is_manual = st.session_state.get('manual_check', False)
+    resp_atual = st.session_state.get('resp_select')
+    qtd_atual = st.session_state.get('qtd_input', 1)
+    
+    if is_manual:
+        mat_atual = st.session_state.get('material_manual', '')
+    else:
+        mat_atual = st.session_state.get('material_select')
+        
+    if not (proj_atual and mat_atual and resp_atual):
+        st.session_state['mensagem_erro'] = "Preencha todos os campos."
+        return
+        
+    if is_manual:
+        codigo = mat_atual.strip()
+        if not df_prod.empty and codigo not in df_prod["Codigo"].tolist():
+            st.session_state['mensagem_erro'] = "Código inexistente."
+            return
+    else:
+        codigo = mat_atual.split(" - ")[0]
+
+    projeto_info = df_proj[df_proj["NOME_PROJETO"] == proj_atual]
+    if projeto_info.empty:
+        st.session_state['mensagem_erro'] = "Projeto não encontrado."
+        return
+
+    tat = projeto_info.iloc[0]["TAT"]
+    
+    # Grava no banco de dados
+    gravar(proj_atual, codigo, qtd_atual, resp_atual, tat)
+    
+    # Limpa os campos após o sucesso, mantendo o projeto selecionado
     st.session_state['manual_check'] = False
     st.session_state['busca_mat'] = ""
     st.session_state['material_manual'] = ""
     st.session_state['material_select'] = None
     st.session_state['resp_select'] = None
     st.session_state['qtd_input'] = 1
+    
+    st.session_state['mensagem_sucesso'] = "Registro salvo na fila com sucesso!"
 
 c1, c2 = st.columns(2)
 
 with c1:
-    # Passando o callback no on_click para evitar o StreamlitAPIException
-    if st.button("Gravar", use_container_width=True, on_click=limpar_campos_exceto_projeto):
-        if not (projeto and material and resp):
-            st.error("Preencha todos os campos.")
-        else:
-            if manual:
-                codigo = material.strip()
-                if not df_prod.empty and codigo not in df_prod["Codigo"].tolist():
-                    st.error("Código inexistente.")
-                    st.stop()
-            else:
-                codigo = material.split(" - ")[0]
-
-            projeto_info = df_proj[df_proj["NOME_PROJETO"] == projeto]
-            if projeto_info.empty:
-                st.error("Projeto não encontrado.")
-                st.stop()
-
-            tat = projeto_info.iloc[0]["TAT"]
-            
-            gravar(projeto, codigo, qtd, resp, tat)
-            
-            st.success("Registro salvo na fila com sucesso!")
-            st.rerun()
+    st.button("Gravar", use_container_width=True, on_click=processar_gravacao)
 
 with c2:
     if st.button("Desfazer Último", use_container_width=True):
         desfazer(resp)
+
+# Exibe mensagens de feedback armazenadas no estado
+if st.session_state.get('mensagem_erro'):
+    st.error(st.session_state['mensagem_erro'])
+    st.session_state['mensagem_erro'] = None
+
+if st.session_state.get('mensagem_sucesso'):
+    st.success(st.session_state['mensagem_sucesso'])
+    st.session_state['mensagem_sucesso'] = None
 
 st.divider()
 st.subheader("📋 Status das Requisições Recentes")
