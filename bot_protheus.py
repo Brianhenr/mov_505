@@ -162,7 +162,7 @@ def executar_robo_protheus(plano_de_movimentacao):
                     time.sleep(4)
                     botao_incluir = pagina.get_by_role("button", name="Incluir", exact=True)
                     botao_incluir.wait_for(state="visible", timeout=30000)
-                    botao_incluir.click()
+                    botao_incluir.dblclick()
                 else:
                     print("A tela de inclusão ja esta aberta. Pulando click...")
                     
