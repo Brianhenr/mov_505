@@ -9,7 +9,8 @@ load_dotenv()
 senha = os.getenv('PASSWORD', '')
 web = os.getenv('URL', '')
 nome = os.getenv('NOME', '')
-caminho_profile = os.getenv('CAMINHO_AUT_50', '')
+caminho_505 = os.getenv('CAMINHO_AUT_50', '')
+
 
 def confirmar_salvamento(pagina):
     print("Aguardando confirmação de salvamento do Protheus...")
@@ -64,14 +65,20 @@ def executar_robo_protheus(plano_de_movimentacao):
         print("Nenhuma movimentação lida para ser feita. Robô encerrado.")
         return
         
+    # O caminho exato que você criou para o robô
     with sync_playwright() as p:
+        
         context = p.chromium.launch_persistent_context(
-            user_data_dir=caminho_profile,
-            headless=False,
+            user_data_dir=caminho_505,
             channel="msedge",
-            no_viewport=True,
-            args=["--start-maximized"]
+            headless=False, # Mantém a tela visível
+            args=[
+                "--disable-blink-features=AutomationControlled", # Esconde que é um robô
+                "--no-first-run",
+                "--no-default-browser-check"
+            ]
         )
+        
         pagina = context.pages[0] if context.pages else context.new_page()
         
         pagina.on("dialog", lambda dialog: dialog.accept())
@@ -80,14 +87,6 @@ def executar_robo_protheus(plano_de_movimentacao):
             print("Acessando o Protheus...")
             pagina.goto(web, wait_until="networkidle", timeout=60000)
             
-            # Modal de permissão inicial (se houver)
-            try:
-                botao_permitir = pagina.get_by_role("button", name="Permitir")
-                botao_permitir.wait_for(state="visible", timeout=3000)
-                botao_permitir.click()
-            except Exception:
-                pass
-                
             pagina.bring_to_front()
             
             # Botão OK de Boas-vindas
@@ -130,7 +129,6 @@ def executar_robo_protheus(plano_de_movimentacao):
             # Tela Principal
             botao_favoritos = pagina.locator('span[title="Favoritos"]')
             botao_favoritos.wait_for(state="visible", timeout=30000)
-
             
             print("Login OK. Acessando Movimentação Múltipla...")
             botao_favoritos.click()
@@ -168,17 +166,17 @@ def executar_robo_protheus(plano_de_movimentacao):
                 else:
                     print("A tela de inclusão ja esta aberta. Pulando click...")
                     
-                print("Preenchendo Cabeçalho (505)...")
-                locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
-                locator_tm.wait_for(state="visible", timeout=30000)
-                locator_tm.fill("505")
-                pagina.keyboard.press("Enter")
-                
-                primeira_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(0)
-                primeira_linha.locator("td[id='0']").wait_for(state="visible", timeout=15000)
-                pagina.wait_for_timeout(500) 
-                
                 try:
+                    print("Preenchendo Cabeçalho (505)...")
+                    locator_tm = pagina.locator("wa-text-input[name='cTm'] input[type='text']")
+                    locator_tm.wait_for(state="visible", timeout=30000)
+                    locator_tm.fill("505")
+                    pagina.keyboard.press("Enter")
+                    
+                    primeira_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(0)
+                    primeira_linha.locator("td[id='0']").wait_for(state="visible", timeout=15000)
+                    pagina.wait_for_timeout(500) 
+                    
                     for linha_idx, item in enumerate(linhas_para_digitar):
                         print(f"Digitando Linha {linha_idx}: {item['quantidade']} un. de {item['produto']} | End: {item['endereco']} | TAT: {item['tat']}")
                         linha_alvo = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx)
@@ -202,13 +200,11 @@ def executar_robo_protheus(plano_de_movimentacao):
                             obs.fill("REPOSIÇÃO")
                             pagina.get_by_title("Ok").click()
                             
-                            # Correção do erro de sintaxe: removido o filter(state="visible")
                             botao_ok_obs = pagina.get_by_title("Ok").first
-                            # Só executamos essa espera se o botão ainda estiver na tela
                             try:
                                 botao_ok_obs.wait_for(state="hidden", timeout=5000)
                             except Exception:
-                                pass # Se o botão sumiu instantaneamente, ignora o erro
+                                pass 
                             
                         except Exception as e:
                             print(f"Ao marcar observação deu erro: {e}")
@@ -279,13 +275,21 @@ def executar_robo_protheus(plano_de_movimentacao):
                                 "motivo_erro": "Salvamento não confirmado no Protheus"
                             }).eq("id", id_req).execute()
                             
-                except RuntimeError as erro_tat:
+                # --- CORREÇÃO APLICADA AQUI ---
+                except Exception as erro_tat:
                     print(f"  Documento da TAT {tat_atual} abortado: {erro_tat}")
+                    
+                    # Se não for o RuntimeError de TAT Inválida (que já faz o recuperar_tela lá em cima),
+                    # nós forçamos o recuperar_tela agora para limpar a sujeira (ex: timeout)
+                    if not isinstance(erro_tat, RuntimeError):
+                        print("  Limpando tela após erro inesperado para tentar o próximo lote...")
+                        recuperar_tela(pagina)
+                        
                     precisa_clicar_incluir = True
                     for id_req in ids_processados:
                         db.table("requisicoes").update({
                             "status_registro": "ERRO",
-                            "motivo_erro": str(erro_tat)
+                            "motivo_erro": f"Falha na automação: {str(erro_tat)}"
                         }).eq("id", id_req).execute()
                         
             print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
