@@ -100,20 +100,35 @@ def filtrar(df, coluna, texto, limite=50):
     return df.head(limite)
 
 def gravar(projeto_nome, codigo, qtd, resp, tat):
-    novo_id = str(uuid.uuid4())
-    
-    dados = {
-        "id": novo_id,
-        "tat": tat,
-        "projeto_nome": projeto_nome,
-        "codigo_material": codigo,
-        "quantidade": qtd,
-        "responsavel": resp,
-        "status_registro": "ATIVO"
-    }
-    
-    db.table("requisicoes").insert(dados).execute()
-    st.session_state['ultimo_id'] = novo_id
+    """
+    Insere uma nova requisição no banco de dados com segurança e tratamento de exceções.
+    Retorna o ID gerado em caso de sucesso, ou None em caso de falha.
+    """
+    try:
+        novo_id = str(uuid.uuid4())
+        dados = {
+            "id": novo_id,
+            "tat": tat,
+            "projeto_nome": projeto_nome,
+            "codigo_material": codigo,
+            "quantidade": qtd,
+            "responsavel": resp,
+            "status_registro": "ATIVO"
+        }
+        
+        res = db.table("requisicoes").insert(dados).execute()
+        
+        # Extração segura para satisfazer o Pylance (evita erro de tipo None)
+        data = getattr(res, 'data', None)
+        if data and isinstance(data, list) and len(data) > 0:
+            primeiro_item = data[0]
+            if isinstance(primeiro_item, dict):
+                return primeiro_item.get('id')
+                
+        return None
+    except Exception as e:
+        st.error(f"Erro de conexão com o banco de dados: {e}")
+        return None
 
 def desfazer(responsavel_atual):
     id_para_cancelar = st.session_state.get('ultimo_id')
@@ -192,16 +207,18 @@ def processar_gravacao():
         mat_atual = st.session_state.get('material_manual', '')
     else:
         mat_atual = st.session_state.get('material_select')
-
+        
     if not (proj_atual and mat_atual and resp_atual):
         st.session_state['mensagem_erro'] = "Preencha todos os campos."
         return
-
+        
     if is_manual:
         codigo = mat_atual.strip()
+        
         if df_prod.empty:
-            st.session_state['mensagem_erro'] = "Não foi possível validar o código: base de produtos indisponível no momento. Tente novamente em instantes."
+            st.session_state['mensagem_erro'] = "Erro de conexão: Base de produtos não carregada. Atualize a página e tente novamente."
             return
+            
         if codigo not in df_prod["Codigo"].tolist():
             st.session_state['mensagem_erro'] = "Código inexistente."
             return
@@ -215,18 +232,24 @@ def processar_gravacao():
 
     tat = projeto_info.iloc[0]["TAT"]
     
-    # Grava no banco de dados
-    gravar(proj_atual, codigo, qtd_atual, resp_atual, tat)
+    # Executa a gravação com spinner visual e tratamento seguro
+    with st.spinner("Enviando requisição para a nuvem..."):
+        id_gerado = gravar(proj_atual, codigo, qtd_atual, resp_atual, tat)
     
-    # Limpa os campos após o sucesso, mantendo o projeto selecionado
-    st.session_state['manual_check'] = False
-    st.session_state['busca_mat'] = ""
-    st.session_state['material_manual'] = ""
-    st.session_state['material_select'] = None
-    st.session_state['resp_select'] = None
-    st.session_state['qtd_input'] = 1
-    
-    st.session_state['mensagem_sucesso'] = "Registro salvo na fila com sucesso!"
+    if id_gerado:
+        st.session_state['ultimo_id'] = id_gerado
+        
+        # Limpeza segura dos campos após sucesso (mantendo o projeto)
+        st.session_state['manual_check'] = False
+        st.session_state['busca_mat'] = ""
+        st.session_state['material_manual'] = ""
+        st.session_state['material_select'] = None
+        st.session_state['resp_select'] = None
+        st.session_state['qtd_input'] = 1
+        
+        st.session_state['mensagem_sucesso'] = "Registro salvo na fila com sucesso!"
+    else:
+        st.session_state['mensagem_erro'] = "Não foi possível salvar a requisição no banco. Verifique sua conexão e tente novamente."
 
 c1, c2 = st.columns(2)
 
