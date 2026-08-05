@@ -279,18 +279,29 @@ def executar_robo_protheus(plano_de_movimentacao):
                 except Exception as erro_tat:
                     print(f"  Documento da TAT {tat_atual} abortado: {erro_tat}")
                     
-                    # Se não for o RuntimeError de TAT Inválida (que já faz o recuperar_tela lá em cima),
-                    # nós forçamos o recuperar_tela agora para limpar a sujeira (ex: timeout)
+                    # Se o erro foi algo imprevisto (timeout, lentidão, rede), 
+                    # forçamos a limpeza da tela antes de ir para a próxima TAT.
                     if not isinstance(erro_tat, RuntimeError):
                         print("  Limpando tela após erro inesperado para tentar o próximo lote...")
                         recuperar_tela(pagina)
                         
                     precisa_clicar_incluir = True
+                    
+                    # Libera os itens que estavam travados em PROCESSANDO
                     for id_req in ids_processados:
                         db.table("requisicoes").update({
                             "status_registro": "ERRO",
                             "motivo_erro": f"Falha na automação: {str(erro_tat)}"
                         }).eq("id", id_req).execute()
+                    
+                    for id_req in ids_processados:
+                        db.table("requisicoes").update({
+                            "status_registro": "ERRO",
+                            "motivo_erro": f"Falha na automação: {str(erro_tat)}"
+                        }).eq("id", id_req).execute()
+
+
+                        
                         
             print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
         except Exception as erro:
