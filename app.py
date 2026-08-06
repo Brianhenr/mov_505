@@ -273,7 +273,7 @@ st.divider()
 st.subheader("📋 Status das Requisições Recentes")
 
 def mostrar_status_recentes():
-    res = db.table("requisicoes").select("id, tat, projeto_nome, codigo_material, quantidade, responsavel, status_registro, motivo_erro").order("data_hora", desc=True).limit(10).execute()
+    res = db.table("requisicoes").select("id, tat, projeto_nome, codigo_material, quantidade, responsavel, status_registro, motivo_erro").order("data_hora", desc=True).limit(50).execute()
     df_status = pd.DataFrame(res.data)
     
     if not df_status.empty:

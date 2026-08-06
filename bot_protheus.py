@@ -264,6 +264,7 @@ def executar_robo_protheus(plano_de_movimentacao):
                                 
                         if linha_idx < len(linhas_para_digitar) - 1:
                             pagina.keyboard.press("ArrowDown")
+                            pagina.wait_for_timeout(700) # para carregar a pagina 
                             nova_linha = pagina.locator("table").nth(1).locator("tbody tr").nth(linha_idx + 1)
                             nova_linha.wait_for(state="attached", timeout=5000)
                             pagina.wait_for_timeout(300) 
