@@ -71,11 +71,12 @@ def executar_robo_protheus(plano_de_movimentacao):
         context = p.chromium.launch_persistent_context(
             user_data_dir=caminho_505,
             channel="msedge",
-            headless=False, # Mantém a tela visível
+            headless=False, 
             args=[
                 "--disable-blink-features=AutomationControlled", # Esconde que é um robô
                 "--no-first-run",
-                "--no-default-browser-check"
+                "--no-default-browser-check",
+                "--start-maximized"
             ]
         )
         
@@ -197,17 +198,30 @@ def executar_robo_protheus(plano_de_movimentacao):
                         try:
                             celula_obs = linha_alvo.locator('td[id="3"]')
                             obs = ativar_celula_robustamente(pagina, celula_obs, 'wa-multi-get[data-advpl="tmultiget"] textarea')
-                            obs.fill("REPOSIÇÃO")
-                            pagina.get_by_title("Ok").click()
                             
-                            botao_ok_obs = pagina.get_by_title("Ok").first
+                            texto_observacao = "REPOSIÇÃO"
+                           
+                            # Preenche o texto no textarea do memo
+                            obs.fill(texto_observacao)
+                            
+                            # Dispara o clique no botão "Ok" da observação via JavaScript puro (SINTAXE CORRIGIDA)
+                            pagina.evaluate('''() => {
+                                const btns = document.querySelectorAll('wa-button[title="Ok"]');
+                                if (btns.length > 0) {
+                                    btns[btns.length - 1].click();
+                                }
+                            }''')
+                            
+                            # Aguarda a janela de observação inteira fechar (sair do DOM), liberando a próxima célula
                             try:
-                                botao_ok_obs.wait_for(state="hidden", timeout=5000)
+                                pagina.locator('wa-multi-get[data-advpl="tmultiget"]').wait_for(state="detached", timeout=5000)
                             except Exception:
-                                pass 
+                                pagina.wait_for_timeout(1500)
                             
                         except Exception as e:
-                            print(f"Ao marcar observação deu erro: {e}")
+                            print(f"  Aviso ao preencher observação na linha {linha_idx}: {e}")
+                            
+                        
                             
                         celula_end = linha_alvo.locator("td[id='8']")
                         endereco = ativar_celula_robustamente(pagina, celula_end, 'wa-text-input[name="M->D3_LOCALIZ"] input')

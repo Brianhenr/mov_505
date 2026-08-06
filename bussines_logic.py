@@ -24,7 +24,7 @@ def recuperar_pendencias_travadas():
 def planejar_movimentacao(caminho_saldo):
     print("Calculando saldos e frações...")
     try:
-        res = db.table("requisicoes").select("*").eq("status_registro", "ATIVO").execute()
+        res = db.table("requisicoes").select("*").in_("status_registro", ["ATIVO", "ERRO"]).order("status_registro", desc=False).order("data_hora", desc=False).execute()
         df_ativos = pd.DataFrame(res.data)
         
         if df_ativos.empty:
