@@ -11,19 +11,49 @@ web = os.getenv('URL', '')
 nome = os.getenv('NOME', '')
 caminho_505 = os.getenv('CAMINHO_AUT_50', '')
 
+def salvar_e_aguardar_reabertura(pagina):
+    """
+    Clica em salvar e aguarda o Protheus processar o documento, 
+    lidando com pop-ups e verificando se a tela resetou para o estado inicial (cTm = '010').
+    """
+    campo_tm_para_validacao = pagina.locator('wa-text-input[name="cTm"]').locator('input')
+    for tentativa in range(1, 4):
+        pagina.get_by_role("button", name="Salvar").wait_for(state='visible', timeout=5000)
+        pagina.get_by_role("button", name="Salvar").click(force=True)
+        
+        inicio = time.time()
+        while time.time() - inicio < 45:
+            # 1. Lida com Pop-ups de "Fechar" (Erro de validação ou aviso de documento)
+            botao_fechar = pagina.locator('wa-dialog[opened=""] wa-button[caption="Fechar"]')
+            if botao_fechar.is_visible():
+                dialog_text = pagina.locator('wa-dialog[opened=""]').text_content() or ""
+                if "novo número de documento" in dialog_text or "novo número de documento" in dialog_text.lower() or "documento alterado" in dialog_text.lower():
+                    botao_fechar.click()
+                    pagina.wait_for_timeout(1000)
+                else:
+                    print(f"  AVISO: Erro real detectado no popup do Protheus: {dialog_text.strip()}")
+                    botao_fechar.click()
+                    pagina.wait_for_timeout(1000)
+                    raise Exception(f"Bloqueado por aviso do Protheus: {dialog_text.strip()}")
 
-def confirmar_salvamento(pagina):
-    print("Aguardando confirmação de salvamento do Protheus...")
-    celula_produto = pagina.locator("table").nth(1).locator("tbody tr").nth(0).locator("td[id='0']")
-    for _ in range(15):
-        pagina.wait_for_timeout(1000)
-        try:
-            valor_atual = celula_produto.inner_text()
-            if valor_atual.strip() == "":
-                return True
-        except Exception:
-            pass
-    return False
+            # 2. Lida com Pop-ups de "Sim" (Mensagens de confirmação)
+            botao_sim = pagina.locator('wa-dialog[opened=""] wa-button[caption="<u>S</u>im"]')
+            if botao_sim.is_visible():
+                botao_sim.click()
+                pagina.wait_for_timeout(1000)
+
+            # 3. Verifica se recarregou voltando para o TM original (010)
+            try:
+                if campo_tm_para_validacao.is_visible() and campo_tm_para_validacao.input_value() == '010':
+                    return True
+            except:
+                pass
+            pagina.wait_for_timeout(500)
+
+    raise Exception("A tela não recarregou após salvar. Possível travamento do Protheus.")
+
+
+
 
 def recuperar_tela(pagina):
     print("Tentando recuperar a tela do Protheus...")
@@ -118,24 +148,59 @@ def executar_robo_protheus(plano_de_movimentacao):
             iframe.get_by_role("textbox", name="Ambiente").fill("4")
             iframe.get_by_role("textbox", name="Papel de trabalho").fill("04")
             
+            # --- PROTEÇÃO DO SWITCH DE SESSÃO ---
+            try:
+                # Procura o switch de "Usar informações acima..." dentro do iframe
+                switch_locator = iframe.locator('div.po-switch-container').filter(has=iframe.locator('div.po-switch-toggle[aria-label="Usar as informações acima em todas as sessões."]'))
+                
+                # Dá uma espiadinha rápida (2 segundos) para ver se ele está na tela
+                if switch_locator.is_visible(timeout=2000):
+                    # Se ele estiver lá, verifica se está desligado (false)
+                    if switch_locator.get_attribute("aria-checked") == "false":
+                        print("  Aviso de múltiplas sessões detectado. Marcando switch para forçar login...")
+                        switch_locator.click()
+                        pagina.wait_for_timeout(500)
+            except:
+                # Se não aparecer nada (login normal), segue o jogo sem travar
+                pass
+            # ------------------------------------
+
             iframe.locator("div").filter(has_text="Linha Protheus Boas-vindas,").nth(1).click()
             
+            botao_entrar_modulo = iframe.get_by_role("button", name="Entrar")
             botao_entrar_modulo = iframe.get_by_role("button", name="Entrar")
             botao_entrar_modulo.click()
             botao_entrar_modulo.wait_for(state="hidden", timeout=30000)
             
             print("Aguardando carregamento completo da interface...")
             pagina.wait_for_load_state("networkidle", timeout=30000)
-            
-            # Tela Principal
-            botao_favoritos = pagina.locator('span[title="Favoritos"]')
-            botao_favoritos.wait_for(state="visible", timeout=30000)
-            
-            print("Login OK. Acessando Movimentação Múltipla...")
+
+            # --- INÍCIO DA CORRIDA INTELIGENTE ---
+            print("Aguardando a tela inicial do Protheus e verificando avisos do sistema...")
+
+            # 1. Defina os competidores da corrida inicial
+            botao_aviso = pagina.locator('wa-button[caption="Não exibir nos próximos 7 dias"]')
+            # O competidor é o botão de Favoritos!
+            botao_favoritos = pagina.locator('span[title="Favoritos"]') 
+
+            # 2. A Corrida: Espera o aviso aparecer OU os Favoritos carregarem
+            botao_aviso.or_(botao_favoritos).wait_for(state="visible", timeout=30000)
+
+            # 3. Verifica quem ganhou a corrida
+            if botao_aviso.is_visible():
+                print("  Aviso pós-login detectado! Fechando para liberar a tela...")
+                botao_aviso.click()
+                # Dá um tempinho para a animação do pop-up sumir e o Favoritos ficar liberado
+                pagina.wait_for_timeout(1000)
+                botao_favoritos.wait_for(state="visible", timeout=5000)
+
+            # 4. Vida que segue: Clica no botão desejado para iniciar a TAT
+            print("Login OK. Acessando Movimentação Múltipla pelos Favoritos...")
             botao_favoritos.click()
 
             time.sleep(5)
             
+            # --- TELA PRINCIPAL (MOVIMENTAÇÃO) ---
             # Correção do erro de sintaxe: removido o filter(state="visible")
             botao_mov = pagina.get_by_title("Movimentação Múltipla").first
             botao_mov.wait_for(state="visible", timeout=15000)
@@ -160,7 +225,6 @@ def executar_robo_protheus(plano_de_movimentacao):
                 print(f"\n--- INICIANDO NOVO DOCUMENTO PARA A TAT: {tat_atual} ---")
                 
                 if precisa_clicar_incluir:
-                    time.sleep(4)
                     botao_incluir = pagina.get_by_role("button", name="Incluir", exact=True)
                     botao_incluir.wait_for(state="visible", timeout=30000)
                     botao_incluir.dblclick()
@@ -270,55 +334,48 @@ def executar_robo_protheus(plano_de_movimentacao):
                             pagina.wait_for_timeout(300) 
                             
                     print(f"Linhas da TAT {tat_atual} preenchidas. Salvando...")
-                    botao_salvar = pagina.locator('wa-button').filter(has_text="Salvar")
-                    botao_salvar.wait_for(state="visible", timeout=5000)
-                    botao_salvar.click()
                     
-                    if confirmar_salvamento(pagina):
-                        print(f"  Movimentação da TAT {tat_atual} confirmada!")
-                        for id_req in ids_processados:
-                            db.table("requisicoes").update({"status_registro": "CONCLUIDO"}).eq("id", id_req).execute()
-                        print("  Banco de dados atualizado (CONCLUIDO).")
-                        precisa_clicar_incluir = False
-                    else:
-                        print(f"  Salvamento da TAT {tat_atual} não confirmado.")
-                        recuperar_tela(pagina)
-                        precisa_clicar_incluir = True
-                        for id_req in ids_processados:
-                            db.table("requisicoes").update({
-                                "status_registro": "ERRO",
-                                "motivo_erro": "Salvamento não confirmado no Protheus"
-                            }).eq("id", id_req).execute()
-                            
-                # --- CORREÇÃO APLICADA AQUI ---
+                    # 1. Chama a nova função robusta. Se ela não conseguir salvar, 
+                    # ela "grita" (raise Exception) e o código pula direto para o 'except' lá embaixo.
+                    salvar_e_aguardar_reabertura(pagina)
+                    
+                    # 2. Se o código chegou nesta linha, é porque salvou com 100% de sucesso!
+                    print(f"  Movimentação da TAT {tat_atual} confirmada com sucesso!")
+                    
+                    # Atualiza o banco de dados para CONCLUIDO
+                    for id_req in ids_processados:
+                        db.table("requisicoes").update({"status_registro": "CONCLUIDO"}).eq("id", id_req).execute()
+                    print("  Banco de dados atualizado (CONCLUIDO).")
+                    
+                    # Como a tela resetou com o salvamento, na próxima TAT não precisamos clicar no Incluir
+                    precisa_clicar_incluir = False 
+
+                # --- TRATAMENTO GERAL DE ERROS DA TAT (Digitação ou Salvamento) ---
                 except Exception as erro_tat:
+                    # 1. Tira print da tela no momento exato da falha
+                    try: 
+                        caminho_print = f"erro_tat_{tat_atual}.png"
+                        pagina.screenshot(path=caminho_print)
+                        print(f"  Screenshot de erro salvo: {caminho_print}")
+                    except: 
+                        pass
+                        
                     print(f"  Documento da TAT {tat_atual} abortado: {erro_tat}")
                     
-                    # Se o erro foi algo imprevisto (timeout, lentidão, rede), 
-                    # forçamos a limpeza da tela antes de ir para a próxima TAT.
+                    # 2. Força a limpeza da tela para não encavalar o erro na próxima TAT
                     if not isinstance(erro_tat, RuntimeError):
                         print("  Limpando tela após erro inesperado para tentar o próximo lote...")
                         recuperar_tela(pagina)
                         
+                    # Como cancelamos a tela atual, na próxima TAT teremos que clicar no botão Incluir de novo
                     precisa_clicar_incluir = True
                     
-                    # Libera os itens que estavam travados em PROCESSANDO
+                    # 3. Atualiza o banco para ERRO (apenas uma vez, sem duplicações)
                     for id_req in ids_processados:
                         db.table("requisicoes").update({
                             "status_registro": "ERRO",
                             "motivo_erro": f"Falha na automação: {str(erro_tat)}"
                         }).eq("id", id_req).execute()
-                    
-                    for id_req in ids_processados:
-                        db.table("requisicoes").update({
-                            "status_registro": "ERRO",
-                            "motivo_erro": f"Falha na automação: {str(erro_tat)}"
-                        }).eq("id", id_req).execute()
-
-
-                        
-                        
-            print("\nTODOS OS DOCUMENTOS FORAM PROCESSADOS.")
         except Exception as erro:
             print(f"Erro fatal na automação Web: {erro}")
         finally:
