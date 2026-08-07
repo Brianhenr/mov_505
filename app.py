@@ -284,7 +284,7 @@ def mostrar_status_recentes():
                 st.success(f"✅ Concluído: {texto_base}")
             elif row['status_registro'] == 'CANCELADO':
                 st.markdown(f"""
-                <div style="background-color: #ff9800; color: white; padding: 14px; border-radius: 8px; margin-bottom: 16px;">
+                <div style="background-color: #5c3a00; color: #ffca28; border: 1px solid #8c5100; padding: 14px; border-radius: 8px; margin-bottom: 16px;">
                     🚫 <b>Cancelado:</b> {texto_base}
                 </div>
                 """, unsafe_allow_html=True)
