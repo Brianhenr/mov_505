@@ -283,7 +283,11 @@ def mostrar_status_recentes():
             if row['status_registro'] == 'CONCLUIDO':
                 st.success(f"✅ Concluído: {texto_base}")
             elif row['status_registro'] == 'CANCELADO':
-                st.warning(f":orange[**🚫 Cancelado: {texto_base}**]")
+                st.markdown(f"""
+                <div style="background-color: #ff9800; color: white; padding: 14px; border-radius: 8px; margin-bottom: 16px;">
+                    🚫 <b>Cancelado:</b> {texto_base}
+                </div>
+                """, unsafe_allow_html=True)
             elif row['status_registro'] == 'ERRO':
                 motivo = str(row.get('motivo_erro', ''))
                 st.error(f"❌ Erro: {texto_base} - Motivo: {motivo}")
